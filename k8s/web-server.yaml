@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opto-sync-web-server
+  namespace: opto-sync
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: opto-sync-web-server
+  template:
+    metadata:
+      labels:
+        app: opto-sync-web-server
+    spec:
+      containers:
+        - name: web
+          image: ghcr.io/opto-sync/opto-sync-web-server.rs:main
+          ports:
+            - containerPort: 8081
+

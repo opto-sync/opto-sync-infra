@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opto-sync-api-server
+  namespace: opto-sync
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: opto-sync-api-server
+  template:
+    metadata:
+      labels:
+        app: opto-sync-api-server
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/opto-sync/opto-sync-api-server.rs:main
+          ports:
+            - containerPort: 8080
+          env:
+            - name: OPTO_SYNC_API_BIND
+              value: "0.0.0.0:8080"
+
