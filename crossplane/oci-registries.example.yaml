@@ -1,0 +1,72 @@
+# Provider-native examples for opto-sync/opto-sync-infra. Replace CHANGE_ME values and
+# use pinned provider packages. No credentials or live secret material belong here.
+---
+apiVersion: ecr.aws.upbound.io/v1beta1
+kind: Repository
+metadata:
+  name: opto-sync-lambda
+  labels:
+    app.kubernetes.io/managed-by: crossplane
+    oci.oresoftware.dev/github-org: opto-sync
+spec:
+  deletionPolicy: Orphan
+  forProvider:
+    region: us-east-1
+    imageTagMutability: IMMUTABLE
+    imageScanningConfiguration:
+      - scanOnPush: true
+    encryptionConfiguration:
+      - encryptionType: AES256
+    tags:
+      github-org: opto-sync
+      github-repo: opto-sync-infra
+      oci-role: lambda
+  providerConfigRef:
+    name: aws-default
+---
+apiVersion: artifact.gcp.upbound.io/v1beta1
+kind: RegistryRepository
+metadata:
+  name: opto-sync-oci
+  labels:
+    app.kubernetes.io/managed-by: crossplane
+    oci.oresoftware.dev/github-org: opto-sync
+spec:
+  deletionPolicy: Orphan
+  forProvider:
+    project: CHANGE_ME_GCP_PROJECT
+    location: us-central1
+    repositoryId: opto-sync-oci
+    format: DOCKER
+    mode: STANDARD_REPOSITORY
+    dockerConfig:
+      - immutableTags: true
+    cleanupPolicyDryRun: true
+    labels:
+      github-org: opto-sync
+      github-repo: opto-sync-infra
+      oci-role: cloud-run
+  providerConfigRef:
+    name: gcp-default
+---
+apiVersion: containerregistry.azure.upbound.io/v1beta1
+kind: Registry
+metadata:
+  name: optosyncoci
+  labels:
+    app.kubernetes.io/managed-by: crossplane
+    oci.oresoftware.dev/github-org: opto-sync
+spec:
+  deletionPolicy: Orphan
+  forProvider:
+    location: East US
+    resourceGroupName: CHANGE_ME_RESOURCE_GROUP
+    sku: Basic
+    adminEnabled: false
+    publicNetworkAccessEnabled: true
+    tags:
+      github-org: opto-sync
+      github-repo: opto-sync-infra
+      oci-role: azure-mirror
+  providerConfigRef:
+    name: azure-default
