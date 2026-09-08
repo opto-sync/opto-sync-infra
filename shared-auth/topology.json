@@ -1,0 +1,8 @@
+{
+ "contract":"SharedAuthTopology","version":1,"githubOrg":"opto-sync","integration":"direct",
+ "supabase":{"runtimeOrg":"oresoftware","targetOrg":"opto-sync","placement":"shared-org-schema","schema":"opto_sync","authDatabaseUrlEnv":"SUPABASE_AUTH_DATABASE_URL","adminDatabaseUrlEnv":"SUPABASE_ADMIN_DATABASE_URL"},
+ "neon":{"runtimeOrg":"opto-sync","targetOrg":"opto-sync","placement":"dedicated-org","authDatabaseUrlEnv":"NEON_AUTH_DATABASE_URL","adminDatabaseUrlEnv":"NEON_ADMIN_DATABASE_URL"},
+ "requestPolicy":{"requireBothProvidersConfigured":true,"customerMode":"availability-first","adminMode":"strict-paired","sensitiveMode":"strict-paired"},
+ "roles":{"webServer":{"dataPlane":"customer-auth","supabaseDatabaseUrlEnv":"SUPABASE_AUTH_DATABASE_URL","neonDatabaseUrlEnv":"NEON_AUTH_DATABASE_URL"},"apiServer":{"dataPlane":"customer-auth","supabaseDatabaseUrlEnv":"SUPABASE_AUTH_DATABASE_URL","neonDatabaseUrlEnv":"NEON_AUTH_DATABASE_URL"},"adminWebServer":{"dataPlane":"admin-auth","supabaseDatabaseUrlEnv":"SUPABASE_ADMIN_DATABASE_URL","neonDatabaseUrlEnv":"NEON_ADMIN_DATABASE_URL"},"adminApiServer":{"dataPlane":"admin-auth","supabaseDatabaseUrlEnv":"SUPABASE_ADMIN_DATABASE_URL","neonDatabaseUrlEnv":"NEON_ADMIN_DATABASE_URL"}},
+ "auditRepositories":["opto-sync/opto-sync-web-server.rs","opto-sync/opto-sync-api-server.rs","opto-sync/opto-sync-admin-web-server.rs","opto-sync/opto-sync-admin-api-server.rs","opto-sync/opto-sync-infra"]
+}
