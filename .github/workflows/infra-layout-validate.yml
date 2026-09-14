@@ -16,8 +16,8 @@ jobs:
         with: { persist-credentials: false }
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with: { terraform_version: 1.16.2, terraform_wrapper: false }
-      - run: terraform fmt -check -recursive modules/cloudflare/terraform
-      - run: terraform fmt -check -recursive "environments/${{ matrix.environment }}"
+      - run: terraform fmt -check -diff -recursive modules/cloudflare/terraform
+      - run: terraform fmt -check -diff -recursive "environments/${{ matrix.environment }}"
       - working-directory: environments/${{ matrix.environment }}
         run: terraform init -backend=false -input=false
       - working-directory: environments/${{ matrix.environment }}
