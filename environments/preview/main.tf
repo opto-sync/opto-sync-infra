@@ -33,12 +33,12 @@ locals {
 }
 
 module "cloudflare_worker_shell" {
-  source        = "../../modules/cloudflare/terraform/worker-shell"
-  enabled       = var.enable_cloudflare_worker
-  account_id    = var.cloudflare_account_id
-  worker_name   = local.worker_name
-  workers_dev   = false
-  preview_urls  = true
+  source       = "../../modules/cloudflare/terraform/worker-shell"
+  enabled      = var.enable_cloudflare_worker
+  account_id   = var.cloudflare_account_id
+  worker_name  = local.worker_name
+  workers_dev  = false
+  preview_urls = true
   tags = [
     "managed-by:terraform",
     "project:${local.project}",
