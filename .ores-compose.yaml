@@ -1,6 +1,11 @@
 schema_version: ores.compose.v1
+# ores-compose-nano-id: _QGacOLX_eecchOhCJBlS
 project: opto-sync
 allow_lazy_start: false
+source:
+  repository: https://github.com/opto-sync/opto-sync-monorepo.git
+  commit: 0f3546e42d51a3499313316882bf391f560c3fb8
+  checkout_dir: .ores/sources/opto-sync-monorepo
 # Requires ORESoftware/ores-compose#156. Configure ORES_LOCAL_OBJECT_ACCESS_KEY,
 # ORES_LOCAL_OBJECT_SECRET_KEY and ORES_LOCAL_MC_HOST in project-root .env.
 services:
