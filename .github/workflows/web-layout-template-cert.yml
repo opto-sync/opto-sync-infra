@@ -25,12 +25,10 @@ jobs:
       TARGET_MIDDLEWARE_REV: '0c29bf0c038b3df8aaaa1a5d3a13bba66b6df52f'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
+        with: { persist-credentials: false }
       - name: Configure private source access
         shell: bash
-        env:
-          ORE_SOURCE_PAT: '${{ secrets.ORE_SOURCE_PAT }}'
+        env: { ORE_SOURCE_PAT: '${{ secrets.ORE_SOURCE_PAT }}' }
         run: |
           set -euo pipefail
           test -n "$ORE_SOURCE_PAT"
@@ -61,7 +59,7 @@ jobs:
           rustup toolchain install 1.88.0 --profile minimal --no-self-update
           rustup default 1.88.0
           rustup component add rustfmt clippy
-          cargo fmt --all -- --check
+          rustfmt --edition 2024 --check src/lib.rs src/middleware/mod.rs src/middleware/mw.rs
           cargo check --all-targets
           cargo test --all-targets
           cargo clippy --all-targets -- -D warnings
@@ -89,12 +87,10 @@ jobs:
       SOURCE_HEAD: 'fd76c082633b8181823eeb120f7937f84ce797b7'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
+        with: { persist-credentials: false }
       - name: Configure private source access
         shell: bash
-        env:
-          ORE_SOURCE_PAT: '${{ secrets.ORE_SOURCE_PAT }}'
+        env: { ORE_SOURCE_PAT: '${{ secrets.ORE_SOURCE_PAT }}' }
         run: |
           set -euo pipefail
           test -n "$ORE_SOURCE_PAT"
@@ -117,7 +113,7 @@ jobs:
           rustup default 1.88.0
           rustup component add rustfmt clippy
           bash scripts/install-zed-deps.sh
-          cargo fmt --all -- --check
+          rustfmt --edition 2024 --check src/lib.rs src/middleware/mod.rs src/middleware/mw.rs
           cargo check --all-targets
           cargo test --all-targets
           cargo clippy --all-targets -- -D warnings
