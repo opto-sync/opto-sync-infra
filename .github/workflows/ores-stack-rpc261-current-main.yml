@@ -13,7 +13,7 @@ permissions:
 env:
   CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
   EXPECTED_MAIN_SHA: '9114d3db54dc140fbc09f1f7672ba86dc1736c64'
-  SOURCE_HEAD: 'a6fb3c574f09991ace7e78bad7ec74aa8163a6e5'
+  SOURCE_HEAD: '561d2722f7c2ae45e79c29be47d7e402b3c51e66'
   SOURCE_BRANCH: 'salvage/rpc-http-adapter-main2-20260922'
   OUTPUT_BRANCH: 'salvage/rpc-http-adapter-certified-main3-20260922'
   LIB_BLOB: 'fa806657e08c23a882dbe40008b69568bdb99e09'
