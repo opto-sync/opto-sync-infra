@@ -1,0 +1,200 @@
+name: ores-stack-ppr-wrapper-lifecycle
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ores-stack-ppr-wrapper-lifecycle.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+  SOURCE_BASE_SHA: '142821fc5749a1645387055b3988ba9e739e0220'
+  SOURCE_BRANCH: 'feat/ppr-wrapper-terminal-lifecycle-20260922'
+  TARGET_FILE: 'crates/ores-stack-cli/src/ppr_middleware_wrapper.rs'
+
+jobs:
+  certify-and-push:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Configure private source access
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+        run: |
+          set -euo pipefail
+          test -n "$ORE_SOURCE_PAT"
+          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+          git config --global user.name "ORESoftware CI"
+          git config --global user.email "alexander.d.mills@gmail.com"
+
+      - name: Fetch guarded ores-stack source branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init ores-stack
+          git -C ores-stack remote add origin https://github.com/ORESoftware/ores-stack.git
+          git -C ores-stack fetch --depth=1 origin "$SOURCE_BRANCH"
+          git -C ores-stack checkout -B "$SOURCE_BRANCH" FETCH_HEAD
+          test "$(git -C ores-stack rev-parse HEAD)" = "$SOURCE_BASE_SHA"
+          test "$(git -C ores-stack ls-remote origin "refs/heads/$SOURCE_BRANCH" | cut -f1)" = "$SOURCE_BASE_SHA"
+
+      - name: Apply lifecycle-only wrapper repair
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("crates/ores-stack-cli/src/ppr_middleware_wrapper.rs")
+          text = path.read_text()
+          replacements = [
+              (
+                  'const ORES_STACK_P2_PROTOCOL_REV: &str = "ebec1752123b77358342dfb3ca54c16986390501";',
+                  'const ORES_STACK_P2_PROTOCOL_REV: &str = "142821fc5749a1645387055b3988ba9e739e0220";',
+              ),
+              (
+                  '    LocalEdgeMinimalHost, MiddlewareCacheProvider, MiddlewareFetchProvider, MiddlewareFetchRequest,',
+                  '    LocalEdgeMinimalLifecycleHost, MiddlewareCacheProvider, MiddlewareFetchProvider, MiddlewareFetchRequest,',
+              ),
+              (
+                  'use ores_stack_p2_edge_minimal::run_stdio_once;',
+                  'use ores_stack_p2_edge_minimal::run_stdio_lifecycle;',
+              ),
+              (
+                  '    let host = LocalEdgeMinimalHost::from_middleware(middleware, deps);',
+                  '    let host = LocalEdgeMinimalLifecycleHost::from_middleware(middleware, deps);',
+              ),
+              (
+                  '    run_stdio_once(&host, stdin.lock(), stdout.lock())',
+                  '    run_stdio_lifecycle(&host, stdin.lock(), stdout.lock())',
+              ),
+              (
+                  'fn wrapper_delegates_wire_contract_to_canonical_p2_crate()',
+                  'fn wrapper_delegates_lifecycle_wire_contract_to_canonical_p2_crate()',
+              ),
+              (
+                  '        assert!(source.contains("LocalEdgeMinimalHost"));',
+                  '        assert!(source.contains("LocalEdgeMinimalLifecycleHost"));',
+              ),
+              (
+                  '        assert!(source.contains("run_stdio_once"));',
+                  '        assert!(source.contains("run_stdio_lifecycle"));',
+              ),
+              (
+                  '        assert!(!source.contains(".finish("));',
+                  '        assert!(!source.contains("run_stdio_once"));',
+              ),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected exactly one occurrence of {old!r}, found {count}")
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+          rustfmt --edition 2024 "$TARGET_FILE" || true
+          test "$(git diff --name-only | tr -d '\r')" = "$TARGET_FILE"
+          git diff --check
+
+      - name: Install Rust 1.88
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.88.0 --profile minimal --no-self-update
+          rustup default 1.88.0
+          rustup component add rustfmt clippy
+          rustc --version
+          cargo --version
+
+      - name: Check and test CLI wrapper
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          rustfmt --edition 2024 --check "$TARGET_FILE"
+          bash scripts/bootstrap-cargo-lock.sh ensure
+          cargo check --locked -p ores-stack-cli --all-targets
+          cargo test --locked -p ores-stack-cli ppr_middleware_wrapper -- --nocapture
+          cargo build --locked -p ores-stack-cli --bin ores-stack
+          git diff --check
+          test "$(git diff --name-only | tr -d '\r')" = "$TARGET_FILE"
+
+      - name: Compile the generated lifecycle wrapper
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          fixture="$(mktemp -d)"
+          mkdir -p "$fixture/src/middleware"
+          printf 'pub mod mw;\n' > "$fixture/src/middleware/mod.rs"
+          cat > "$fixture/src/middleware/mw.rs" <<'RS'
+          pub async fn middleware(
+              args: ores_middleware::EdgeMinimalCallbackArgs,
+          ) -> Result<ores_middleware::EdgeMinimalDecision, ores_middleware::IntegrationError> {
+              Ok(ores_middleware::EdgeMinimalDecision::Continue(args.request))
+          }
+          RS
+          ./target/debug/ores-stack __ppr-generate-middleware-wrapper --root="$fixture"
+          generated="$fixture/tmp/ores-stack-ppr-middleware"
+          grep -F '142821fc5749a1645387055b3988ba9e739e0220' "$generated/Cargo.toml"
+          grep -F 'LocalEdgeMinimalLifecycleHost' "$generated/main.rs"
+          grep -F 'run_stdio_lifecycle' "$generated/main.rs"
+          ! grep -F 'run_stdio_once' "$generated/main.rs"
+          cargo check --manifest-path "$generated/Cargo.toml"
+
+      - name: Reject changed-file Clippy diagnostics
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          set +e
+          cargo clippy --locked -p ores-stack-cli --all-targets --message-format=json -- -D warnings > /tmp/clippy.json
+          clippy_rc=$?
+          set -e
+          TARGET_FILE="$TARGET_FILE" python3 - <<'PY'
+          import json, os, sys
+          target = os.environ['TARGET_FILE']
+          bad = []
+          for raw in open('/tmp/clippy.json', encoding='utf-8'):
+              try:
+                  obj = json.loads(raw)
+              except json.JSONDecodeError:
+                  continue
+              if obj.get('reason') != 'compiler-message':
+                  continue
+              message = obj.get('message') or {}
+              for span in message.get('spans') or []:
+                  if span.get('is_primary') and span.get('file_name') == target:
+                      bad.append(message.get('rendered') or message.get('message') or repr(message))
+                      break
+          if bad:
+              print('\n'.join(bad), file=sys.stderr)
+              raise SystemExit('changed wrapper file has Clippy diagnostics')
+          PY
+          if [ "$clippy_rc" -ne 0 ]; then
+            echo "full ores-stack-cli Clippy still has unrelated mainline debt; changed-file diagnostic gate passed"
+          fi
+
+      - name: Commit and push only the certified source delta
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_BASE_SHA"
+          test "$(git ls-remote origin "refs/heads/$SOURCE_BRANCH" | cut -f1)" = "$SOURCE_BASE_SHA"
+          test "$(git diff --name-only | tr -d '\r')" = "$TARGET_FILE"
+          git diff --check
+          git add "$TARGET_FILE"
+          git commit -m 'feat(ppr): advance generated wrapper to terminal lifecycle'
+          git push origin "HEAD:refs/heads/$SOURCE_BRANCH"
+          test -z "$(git status --porcelain)"
