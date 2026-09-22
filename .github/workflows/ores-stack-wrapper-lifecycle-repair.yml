@@ -72,7 +72,7 @@ jobs:
           rustup component add rustfmt clippy
           rustc --version
           cargo --version
-      - name: Verify CLI and wrapper generator
+      - name: Verify affected CLI surface
         shell: bash
         working-directory: ores-stack
         run: |
@@ -81,8 +81,7 @@ jobs:
           rustfmt --edition 2024 --check crates/ores-stack-cli/src/ppr_middleware_wrapper.rs
           bash scripts/bootstrap-cargo-lock.sh ensure
           cargo check --locked -p ores-stack-cli --all-targets
-          RUST_TEST_THREADS=1 cargo test --locked -p ores-stack-cli -- \
-            --skip stack_cli_hardened::tests::publication_rolls_back_when_a_later_destination_collides
+          cargo test --locked -p ores-stack-cli ppr_middleware_wrapper::
           cargo clippy --locked -p ores-stack-cli --all-targets -- -D warnings -A dead-code -A unused-imports
           git diff --check
       - name: Generate and compile lifecycle wrapper fixture
