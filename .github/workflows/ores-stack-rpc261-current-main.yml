@@ -47,10 +47,10 @@ jobs:
           test "$(git -C ores-stack rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
           git -C ores-stack fetch --depth=1 origin "$SOURCE_HEAD"
           test "$(git -C ores-stack rev-parse FETCH_HEAD)" = "$SOURCE_HEAD"
-          test "$(git -C ores-stack rev-parse "$SOURCE_HEAD:crates/ores-fn-adapters/src/lib.rs")" = "$LIB_BLOB"
-          test "$(git -C ores-stack rev-parse "$SOURCE_HEAD:crates/ores-fn-adapters/src/rpc_http.rs")" = "$RPC_BLOB"
           git -C ores-stack show "$SOURCE_HEAD:crates/ores-fn-adapters/src/lib.rs" > ores-stack/crates/ores-fn-adapters/src/lib.rs
           git -C ores-stack show "$SOURCE_HEAD:crates/ores-fn-adapters/src/rpc_http.rs" > ores-stack/crates/ores-fn-adapters/src/rpc_http.rs
+          test "$(git -C ores-stack hash-object crates/ores-fn-adapters/src/lib.rs)" = "$LIB_BLOB"
+          test "$(git -C ores-stack hash-object crates/ores-fn-adapters/src/rpc_http.rs)" = "$RPC_BLOB"
           changed="$(git -C ores-stack diff --name-only | sort)"
           expected=$'crates/ores-fn-adapters/src/lib.rs\ncrates/ores-fn-adapters/src/rpc_http.rs'
           test "$changed" = "$expected"
