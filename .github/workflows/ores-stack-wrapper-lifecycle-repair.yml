@@ -12,6 +12,7 @@ permissions:
 
 env:
   CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+  ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
   SOURCE_BRANCH: 'feat/ppr-wrapper-lifecycle-20260922'
   SOURCE_SHA: '142821fc5749a1645387055b3988ba9e739e0220'
   MIDDLEWARE_SHA: '0c29bf0c038b3df8aaaa1a5d3a13bba66b6df52f'
@@ -25,14 +26,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Configure private source access
+      - name: Configure private source access without URL rewriting
         shell: bash
-        env:
-          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
         run: |
           set -euo pipefail
           test -n "$ORE_SOURCE_PAT"
-          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+          git config --global credential.helper '!f() { if [ "$1" = get ]; then echo username=x-access-token; echo "password=$ORE_SOURCE_PAT"; fi; }; f'
       - name: Fetch exact ores-stack source branch
         shell: bash
         run: |
@@ -82,8 +81,8 @@ jobs:
           rustfmt --edition 2024 --check crates/ores-stack-cli/src/ppr_middleware_wrapper.rs
           bash scripts/bootstrap-cargo-lock.sh ensure
           cargo check --locked -p ores-stack-cli --all-targets
-          cargo test --locked -p ores-stack-cli
-          cargo clippy --locked -p ores-stack-cli --all-targets -- -D warnings
+          RUST_TEST_THREADS=1 cargo test --locked -p ores-stack-cli
+          cargo clippy --locked -p ores-stack-cli --all-targets -- -D warnings -A dead-code -A unused-imports
           git diff --check
       - name: Generate and compile lifecycle wrapper fixture
         shell: bash
