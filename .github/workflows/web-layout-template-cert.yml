@@ -107,12 +107,57 @@ jobs:
       - name: Resolve Zed dependencies and certify API template
         shell: bash
         working-directory: source
+        env:
+          GH_TOKEN: '${{ secrets.ORE_SOURCE_PAT }}'
+          ZED_PKG_GITHUB_TOKEN: '${{ secrets.ORE_SOURCE_PAT }}'
         run: |
           set -euo pipefail
           rustup toolchain install 1.88.0 --profile minimal --no-self-update
           rustup default 1.88.0
           rustup component add rustfmt clippy
           bash scripts/install-zed-deps.sh
+          rustfmt --edition 2024 --check src/lib.rs src/middleware/mod.rs src/middleware/mw.rs
+          cargo check --all-targets
+          cargo test --all-targets
+          cargo clippy --all-targets -- -D warnings
+          git diff --check
+          rm -f Cargo.lock
+          test -z "$(git diff --name-only)"
+
+  admin_web_exact_head:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      SOURCE_REPO: 'ORESoftware/admin-web-server-template.rs'
+      SOURCE_BRANCH: 'feat/middleware-authored-wrapper-20260922'
+      SOURCE_HEAD: '51fdf6f32320d7c471aeb0e92875083612e0c81f'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with: { persist-credentials: false }
+      - name: Configure private source access
+        shell: bash
+        env: { ORE_SOURCE_PAT: '${{ secrets.ORE_SOURCE_PAT }}' }
+        run: |
+          set -euo pipefail
+          test -n "$ORE_SOURCE_PAT"
+          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+      - name: Fetch exact admin-web PR head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init source
+          git -C source remote add origin "https://github.com/${SOURCE_REPO}.git"
+          git -C source fetch --depth=1 origin "$SOURCE_BRANCH"
+          test "$(git -C source rev-parse FETCH_HEAD)" = "$SOURCE_HEAD"
+          git -C source checkout -b certified "$SOURCE_HEAD"
+      - name: Certify admin-web portable middleware boundary
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.88.0 --profile minimal --no-self-update
+          rustup default 1.88.0
+          rustup component add rustfmt clippy
           rustfmt --edition 2024 --check src/lib.rs src/middleware/mod.rs src/middleware/mw.rs
           cargo check --all-targets
           cargo test --all-targets
