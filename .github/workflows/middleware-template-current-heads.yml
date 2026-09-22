@@ -1,0 +1,206 @@
+name: middleware template current-head certification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/middleware-template-current-heads.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: middleware-template-current-heads-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+
+jobs:
+  template-heads:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: web-template
+            repo: ORESoftware/ores-web-server.template.rs
+            sha: dbbe0f65247b3060fb7fee6172179159027541f9
+            mode: cargo
+          - name: api-template
+            repo: ORESoftware/ores-api-server.template.rs
+            sha: fd76c082633b8181823eeb120f7937f84ce797b7
+            mode: zed
+          - name: admin-api-template
+            repo: ORESoftware/admin-api-server-template.rs
+            sha: c062bef98aa3b96c844cc5b8abc2f6fb51897a23
+            mode: cargo
+          - name: admin-web-template
+            repo: ORESoftware/admin-web-server-template.rs
+            sha: ea866411f8d0dc9bec747bc5cc63a44bb37686ef
+            mode: cargo
+    steps:
+      - name: Require scoped source PAT
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+        run: |
+          set -euo pipefail
+          [[ -n "$ORE_SOURCE_PAT" ]] || { echo '::error::Missing Actions secret ORE_SOURCE_PAT'; exit 1; }
+
+      - name: Check out exact template head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: ${{ matrix.repo }}
+          ref: ${{ matrix.sha }}
+          token: ${{ secrets.ORE_SOURCE_PAT }}
+          persist-credentials: false
+          fetch-depth: 1
+          path: source
+
+      - name: Verify exact immutable source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "${{ matrix.sha }}"
+          git -C source diff --check
+
+      - name: Install Rust 1.88
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: 1.88.0
+          components: rustfmt, clippy
+
+      - name: Configure private Git dependencies
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$ORE_SOURCE_PAT"
+          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+
+      - name: Resolve vendored Zed dependencies
+        if: ${{ matrix.mode == 'zed' }}
+        working-directory: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.ORE_SOURCE_PAT }}
+          ZED_PKG_GITHUB_TOKEN: ${{ secrets.ORE_SOURCE_PAT }}
+        run: |
+          set -euo pipefail
+          bash scripts/install-zed-deps.sh
+
+      - name: Verify current middleware authority where Git-pinned
+        if: ${{ matrix.mode == 'cargo' }}
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'rev = "7a6b10216c084fd7e4ff774bb33544b1f9677191"' Cargo.toml
+
+      - name: Check middleware source formatting
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustfmt --edition 2024 --config skip_children=true --check \
+            src/middleware/mod.rs src/middleware/mw.rs
+
+      - name: Compile all targets
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo check --all-targets
+
+      - name: Run all tests
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --all-targets -- --nocapture
+
+      - name: Strict Clippy
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy --all-targets -- -D warnings
+
+      - name: Prove candidate source remained clean
+        if: ${{ always() }}
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ matrix.sha }}"
+          rm -f Cargo.lock
+          git diff --exit-code
+
+      - name: Remove temporary Git auth rewrite
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set +e
+          git config --global --get-regexp '^url\..*\.insteadOf$' | cut -d' ' -f1 | while read -r key; do
+            case "$key" in
+              url.https://x-access-token:*@github.com/.insteadOf) git config --global --unset-all "$key" ;;
+            esac
+          done
+          exit 0
+
+  admin-api-baseline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Require scoped source PAT
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+        run: '[[ -n "$ORE_SOURCE_PAT" ]] || { echo "::error::Missing ORE_SOURCE_PAT"; exit 1; }'
+
+      - name: Check out admin-api base
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: ORESoftware/admin-api-server-template.rs
+          ref: 176e28510284f6e4025727ad67c13a1152cb468f
+          token: ${{ secrets.ORE_SOURCE_PAT }}
+          persist-credentials: false
+          fetch-depth: 1
+          path: source
+
+      - name: Install Rust 1.88
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: 1.88.0
+
+      - name: Configure private Git dependencies
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+        run: |
+          echo "::add-mask::$ORE_SOURCE_PAT"
+          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+
+      - name: Run baseline sidecar admission regression
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test integrations::tests::compiled_admin_integration_bundle_is_admitted -- --nocapture
+
+      - name: Remove temporary Git auth rewrite
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set +e
+          git config --global --get-regexp '^url\..*\.insteadOf$' | cut -d' ' -f1 | while read -r key; do
+            case "$key" in
+              url.https://x-access-token:*@github.com/.insteadOf) git config --global --unset-all "$key" ;;
+            esac
+          done
+          exit 0
