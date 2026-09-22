@@ -104,7 +104,7 @@ jobs:
             test "$changed" = "$expected"
           fi
           untracked="$(git status --short | grep '^?? ' || true)"
-          test "$untracked" = '?? crates/ores-fn-adapters/Cargo.lock'
+          test -z "$untracked" || test "$untracked" = '?? crates/ores-fn-adapters/Cargo.lock'
 
       - name: Guard and fast-forward source PR branch
         shell: bash
