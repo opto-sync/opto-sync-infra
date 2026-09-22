@@ -1,0 +1,141 @@
+name: ores-stack #271 direct correlation proof
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ores-stack-271-direct-correlation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ores-stack-271-direct-correlation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ORES_STACK_SHA: fa2fb436304122257498da20c371942f87b79964
+
+jobs:
+  rust-1-88-exact-head:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Require scoped source PAT
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+        run: |
+          set -euo pipefail
+          [[ -n "$ORE_SOURCE_PAT" ]] || { echo '::error::Missing Actions secret ORE_SOURCE_PAT'; exit 1; }
+
+      - name: Check out exact ores-stack #271 head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: ORESoftware/ores-stack
+          ref: ${{ env.ORES_STACK_SHA }}
+          token: ${{ secrets.ORE_SOURCE_PAT }}
+          persist-credentials: false
+          fetch-depth: 1
+          path: ores-stack
+
+      - name: Verify exact immutable source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C ores-stack rev-parse HEAD)" = "$ORES_STACK_SHA"
+          git -C ores-stack diff --check
+
+      - name: Install Rust 1.88
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: 1.88.0
+          components: rustfmt, clippy
+
+      - name: Configure private Cargo Git authentication
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$ORE_SOURCE_PAT"
+          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+          echo 'CARGO_NET_GIT_FETCH_WITH_CLI=true' >> "$GITHUB_ENV"
+
+      - name: Check exact source formatting
+        working-directory: ores-stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --manifest-path crates/ores-fn-adapters/Cargo.toml -- --check
+
+      - name: Create locked standalone package copy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -R ores-stack/crates/ores-fn-adapters "$RUNNER_TEMP/ores-fn-adapters"
+          cargo generate-lockfile --manifest-path "$RUNNER_TEMP/ores-fn-adapters/Cargo.toml"
+
+      - name: Check standalone package all targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo check --locked --all-targets --manifest-path "$RUNNER_TEMP/ores-fn-adapters/Cargo.toml"
+
+      - name: Test standalone package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked --all-targets --manifest-path "$RUNNER_TEMP/ores-fn-adapters/Cargo.toml" -- --nocapture
+
+      - name: Strict Clippy standalone package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy --locked --all-targets --manifest-path "$RUNNER_TEMP/ores-fn-adapters/Cargo.toml" -- -D warnings
+
+      - name: Prove immutable Git-revision consumption
+        shell: bash
+        run: |
+          set -euo pipefail
+          consumer="$RUNNER_TEMP/consumer"
+          mkdir -p "$consumer/src"
+          cat > "$consumer/Cargo.toml" <<EOF
+          [package]
+          name = "ores-fn-adapters-consumer-proof"
+          version = "0.0.0"
+          edition = "2024"
+          rust-version = "1.88"
+
+          [dependencies]
+          ores-fn-adapters = { git = "https://github.com/ORESoftware/ores-stack.git", rev = "$ORES_STACK_SHA", package = "ores-fn-adapters" }
+          EOF
+          cat > "$consumer/src/main.rs" <<'EOF'
+          fn main() {
+              let _ = ores_fn_adapters::aws::direct_result::render_correlated_result;
+          }
+          EOF
+          cargo generate-lockfile --manifest-path "$consumer/Cargo.toml"
+          grep -F "source = \"git+https://github.com/ORESoftware/ores-stack.git?rev=$ORES_STACK_SHA#$ORES_STACK_SHA\"" "$consumer/Cargo.lock"
+          cargo check --locked --manifest-path "$consumer/Cargo.toml"
+
+      - name: Prove source remained clean and exact
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C ores-stack rev-parse HEAD)" = "$ORES_STACK_SHA"
+          git -C ores-stack diff --exit-code
+
+      - name: Remove temporary Git auth rewrite
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set +e
+          git config --global --get-regexp '^url\..*\.insteadOf$' | cut -d' ' -f1 | while read -r key; do
+            case "$key" in
+              url.https://x-access-token:*@github.com/.insteadOf) git config --global --unset-all "$key" ;;
+            esac
+          done
+          exit 0
