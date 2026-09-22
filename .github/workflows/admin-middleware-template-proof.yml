@@ -20,15 +20,18 @@ jobs:
         include:
           - repo: ORESoftware/admin-api-server-template.rs
             branch: feat/portable-edge-middleware-hook-20260922
-            source_sha: 9da27d8d4ac5bcac4f10c271835f16e08ed6e24b
+            source_sha: 1ae31df888d8d954c1893ceae0cdd1dea60688db
+            materialize_zed: 'false'
           - repo: ORESoftware/admin-web-server-template.rs
             branch: feat/middleware-authored-wrapper-20260922
             source_sha: e60cba76dbff63cb1f35a6d595578c98de96f6ba
+            materialize_zed: 'true'
     env:
       CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
       SOURCE_REPO: ${{ matrix.repo }}
       SOURCE_BRANCH: ${{ matrix.branch }}
       SOURCE_SHA: ${{ matrix.source_sha }}
+      MATERIALIZE_ZED: ${{ matrix.materialize_zed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -66,16 +69,29 @@ jobs:
           test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
           test "$(git ls-remote "https://github.com/${SOURCE_REPO}.git" "refs/heads/${SOURCE_BRANCH}" | cut -f1)" = "$SOURCE_SHA"
 
+      - name: Materialize Zed dependencies when required by source CI
+        if: ${{ matrix.materialize_zed == 'true' }}
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          cargo install --git https://github.com/zed-pkg/zed-cli \
+            --rev 344d432a6f94d4b1cfa02228ec36623c7484177a --locked zed-cli
+          zed install --allow-build --install-mode copy
+          test -f .vendor/.zed/oresoftware/ores-sw/dist/service-worker.js
+          test -f .vendor/.zed/oresoftware/ores-sw/rust/axum08.rs
+
       - name: Resolve lock and certify candidate tree
         shell: bash
         working-directory: source
         run: |
           set -euo pipefail
           rustfmt --edition 2024 --check src/middleware/mod.rs src/middleware/mw.rs
-          # The manifest may introduce a git source/revision that is not yet
-          # represented in Cargo.lock. Let one real all-target resolution add
-          # that exact identity, then require every subsequent command locked.
-          cargo check --all-targets
+          # The merged middleware logger currently requires tokio ~1.47.5 while
+          # these template locks still contain 1.53.1. Repair that one known
+          # resolver edge explicitly; resolution also records the new immutable
+          # middleware git identity. No authored source may change here.
+          cargo update -p tokio@1.53.1 --precise 1.47.5
           changed="$(git diff --name-only)"
           if [ -n "$changed" ]; then
             test "$changed" = "Cargo.lock"
@@ -117,6 +133,10 @@ jobs:
           git -C final checkout --detach FETCH_HEAD
           test "$(git -C final rev-parse HEAD)" = "$FINAL_SHA"
           cd final
+          if [ "$MATERIALIZE_ZED" = 'true' ]; then
+            zed install --allow-build --install-mode copy
+            test -f .vendor/.zed/oresoftware/ores-sw/rust/axum08.rs
+          fi
           rustfmt --edition 2024 --check src/middleware/mod.rs src/middleware/mw.rs
           cargo check --locked --all-targets
           cargo test --locked
