@@ -1,0 +1,115 @@
+name: 'ores-stack #251 edge wrapper certification'
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ores-stack-251-edge-wrapper.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+  SOURCE_HEAD: '2af063513e8ddfe05d7e7728509c9382601783fb'
+  SOURCE_BRANCH: 'feat/ppr-edge-minimal-wrapper-current3-20260922'
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Configure private source access
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: '${{ secrets.ORE_SOURCE_PAT }}'
+        run: |
+          set -euo pipefail
+          test -n "$ORE_SOURCE_PAT"
+          echo "::add-mask::$ORE_SOURCE_PAT"
+          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+
+      - name: Checkout exact ores-stack PR head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init ores-stack
+          git -C ores-stack remote add origin https://github.com/ORESoftware/ores-stack.git
+          git -C ores-stack fetch --depth=1 origin "$SOURCE_BRANCH"
+          test "$(git -C ores-stack rev-parse FETCH_HEAD)" = "$SOURCE_HEAD"
+          git -C ores-stack checkout -b repair "$SOURCE_HEAD"
+          test -z "$(git -C ores-stack status --short)"
+
+      - name: Rust 1.88 source and CLI certification
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.88.0 --profile minimal --no-self-update
+          rustup default 1.88.0
+          rustup component add rustfmt clippy
+
+          rustfmt --edition 2024 crates/ores-stack-cli/src/entry.rs crates/ores-stack-cli/src/ppr_middleware_wrapper.rs
+          cargo check --locked -p ores-stack-cli --all-targets
+          cargo test --locked -p ores-stack-cli ppr_middleware_wrapper -- --nocapture
+          cargo clippy --locked -p ores-stack-cli --all-targets -- -D warnings
+          git diff --check
+
+          changed="$(git diff --name-only | sort)"
+          expected=$'crates/ores-stack-cli/src/entry.rs\ncrates/ores-stack-cli/src/ppr_middleware_wrapper.rs'
+          if [ -n "$changed" ]; then
+            test "$changed" = "$expected"
+          fi
+
+      - name: Generate and compile isolated wrapper fixture
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          fixture="$RUNNER_TEMP/edge-wrapper-fixture"
+          mkdir -p "$fixture/src/middleware"
+          printf 'pub mod mw;\n' > "$fixture/src/middleware/mod.rs"
+          cat > "$fixture/src/middleware/mw.rs" <<'RS'
+          pub async fn middleware(
+              args: ores_middleware::EdgeMinimalCallbackArgs,
+          ) -> Result<ores_middleware::EdgeMinimalDecision, ores_middleware::IntegrationError> {
+              Ok(ores_middleware::EdgeMinimalDecision::Continue(args.request))
+          }
+          RS
+
+          cargo run --locked -p ores-stack-cli -- \
+            __ppr-generate-middleware-wrapper \
+            --root="$fixture"
+
+          manifest="$fixture/tmp/ores-stack-ppr-middleware/Cargo.toml"
+          main="$fixture/tmp/ores-stack-ppr-middleware/main.rs"
+          test -s "$manifest"
+          test -s "$main"
+          grep -Fq 'ores-stack-p2-edge-minimal' "$manifest"
+          grep -Fq 'edge_minimal_middleware_fn(app_middleware::middleware)' "$main"
+          grep -Fq 'run_stdio_once' "$main"
+          cargo generate-lockfile --manifest-path "$manifest"
+          cargo check --manifest-path "$manifest" --locked
+
+      - name: Guard and optionally fast-forward formatting repair
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$SOURCE_BRANCH" | cut -f1)" = "$SOURCE_HEAD"
+          git diff --check
+          git config user.name 'ORESoftware CI certification'
+          git config user.email 'noreply@oresoftware.com'
+          git add crates/ores-stack-cli/src/entry.rs crates/ores-stack-cli/src/ppr_middleware_wrapper.rs
+          if git diff --cached --quiet; then
+            echo ORES_STACK_251_GREEN_EXACT_HEAD
+            exit 0
+          fi
+          git commit -m 'style(ppr): rustfmt generated edge wrapper path'
+          git push origin HEAD:"$SOURCE_BRANCH"
+          echo ORES_STACK_251_FORMATTED_AND_GREEN
