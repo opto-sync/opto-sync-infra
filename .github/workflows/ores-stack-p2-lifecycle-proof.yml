@@ -51,44 +51,27 @@ jobs:
           from pathlib import Path
           path = Path('crates/ores-stack-p2-edge-minimal/src/lib.rs')
           text = path.read_text()
-
-          old = """    Begin {
-              schema: String,
-              request: MiddlewareHostRequest,
-              context: RequestContext,
-          },"""
-          old = old.replace("              ", "        ").replace("          },", "    },")
-          new = """    Begin {
-              schema: String,
-              request: Box<MiddlewareHostRequest>,
-              context: Box<RequestContext>,
-          },"""
-          new = new.replace("              ", "        ").replace("          },", "    },")
-          if text.count(old) != 1:
-              raise SystemExit('expected exactly one LifecycleInputFrame::Begin declaration')
-          text = text.replace(old, new, 1)
-
-          old = """        Self::Begin {
-              schema: P2_EDGE_MINIMAL_LIFECYCLE_SCHEMA.to_owned(),
-              request,
-              context,
-          }"""
-          old = old.replace("              ", "            ").replace("          }", "        }")
-          new = """        Self::Begin {
-              schema: P2_EDGE_MINIMAL_LIFECYCLE_SCHEMA.to_owned(),
-              request: Box::new(request),
-              context: Box::new(context),
-          }"""
-          new = new.replace("              ", "            ").replace("          }", "        }")
-          if text.count(old) != 1:
-              raise SystemExit('expected exactly one lifecycle begin constructor')
-          text = text.replace(old, new, 1)
-
-          old = '            (request, context)\n'
-          new = '            (*request, *context)\n'
-          if text.count(old) != 1:
-              raise SystemExit('expected exactly one lifecycle begin handoff tuple')
-          text = text.replace(old, new, 1)
+          replacements = [
+              (
+                  '        request: MiddlewareHostRequest,\n        context: RequestContext,',
+                  '        request: Box<MiddlewareHostRequest>,\n        context: Box<RequestContext>,',
+                  'LifecycleInputFrame begin fields',
+              ),
+              (
+                  '            request,\n            context,',
+                  '            request: Box::new(request),\n            context: Box::new(context),',
+                  'lifecycle begin constructor',
+              ),
+              (
+                  '            (request, context)\n',
+                  '            (*request, *context)\n',
+                  'lifecycle begin handoff',
+              ),
+          ]
+          for old, new, label in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected exactly one {label}')
+              text = text.replace(old, new, 1)
           path.write_text(text)
           PY
       - name: Install Rust 1.88
