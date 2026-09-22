@@ -68,7 +68,6 @@ jobs:
           test "$(grep -F -c '.ores-stack.toml' "$entry")" = '1'
           sed -i 's/\.ores-stack\.toml/.ores-stack.yaml/' "$entry"
           test "$(grep -F -c '.ores-stack.toml' "$entry" || true)" = '0'
-          test "$(grep -F -c '.ores-stack.yaml' "$entry")" -ge '1'
 
           old_mw='b930660d34896db1ab285c3b9bd97deaa37dc9ad'
           new_mw='0c29bf0c038b3df8aaaa1a5d3a13bba66b6df52f'
@@ -92,15 +91,25 @@ jobs:
           rustup default 1.88.0
           rustup component add rustfmt clippy
 
-      - name: Rustfmt reconciled sources
+      - name: Rustfmt entry source
+        shell: bash
+        working-directory: ores-stack
+        run: rustfmt --edition 2024 crates/ores-stack-cli/src/entry.rs
+
+      - name: Rustfmt wrapper source
+        shell: bash
+        working-directory: ores-stack
+        run: rustfmt --edition 2024 crates/ores-stack-cli/src/ppr_middleware_wrapper.rs
+
+      - name: Verify formatting drift confinement
         shell: bash
         working-directory: ores-stack
         run: |
           set -euo pipefail
-          rustfmt --edition 2024 crates/ores-stack-cli/src/entry.rs crates/ores-stack-cli/src/ppr_middleware_wrapper.rs
           git diff --check
           changed="$(git diff --name-only | sort)"
           expected=$'crates/ores-stack-cli/src/entry.rs\ncrates/ores-stack-cli/src/ppr_middleware_wrapper.rs'
+          printf 'changed files after reconciliation + rustfmt:\n%s\n' "$changed"
           test "$changed" = "$expected"
 
       - name: Check ores-stack CLI
