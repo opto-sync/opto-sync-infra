@@ -1,0 +1,126 @@
+name: web-layout-template-cert
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/web-layout-template-cert.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+
+jobs:
+  web_template_repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      SOURCE_REPO: 'ORESoftware/ores-web-server.template.rs'
+      SOURCE_BRANCH: 'feat/portable-edge-middleware-hook-20260922'
+      SOURCE_HEAD: 'c78e80e220ab876dfc5a204c0e5d5d563b9f57fd'
+      OLD_MIDDLEWARE_REV: '8f115881eec4033640dcab86af6ac4e5fe583d7e'
+      TARGET_MIDDLEWARE_REV: '0c29bf0c038b3df8aaaa1a5d3a13bba66b6df52f'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Configure private source access
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: '${{ secrets.ORE_SOURCE_PAT }}'
+        run: |
+          set -euo pipefail
+          test -n "$ORE_SOURCE_PAT"
+          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+      - name: Fetch exact web template PR head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init source
+          git -C source remote add origin "https://github.com/${SOURCE_REPO}.git"
+          git -C source fetch --depth=1 origin "$SOURCE_BRANCH"
+          test "$(git -C source rev-parse FETCH_HEAD)" = "$SOURCE_HEAD"
+          git -C source checkout -b certified "$SOURCE_HEAD"
+      - name: Repin middleware to merged portable host authority
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          grep -Fq "rev = \"$OLD_MIDDLEWARE_REV\"" Cargo.toml
+          sed -i "s/rev = \"$OLD_MIDDLEWARE_REV\"/rev = \"$TARGET_MIDDLEWARE_REV\"/" Cargo.toml
+          grep -Fq "rev = \"$TARGET_MIDDLEWARE_REV\"" Cargo.toml
+          test "$(git diff --name-only)" = 'Cargo.toml'
+      - name: Certify repaired web template on Rust 1.88
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.88.0 --profile minimal --no-self-update
+          rustup default 1.88.0
+          rustup component add rustfmt clippy
+          cargo fmt --all -- --check
+          cargo check --all-targets
+          cargo test --all-targets
+          cargo clippy --all-targets -- -D warnings
+          git diff --check
+          rm -f Cargo.lock
+          test "$(git diff --name-only)" = 'Cargo.toml'
+      - name: Guard and push tested web-template repair
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/heads/$SOURCE_BRANCH" | cut -f1)" = "$SOURCE_HEAD"
+          git config user.name 'ORESoftware CI certification'
+          git config user.email 'noreply@oresoftware.com'
+          git add Cargo.toml
+          git commit -m 'fix: pin portable middleware host authority'
+          git push origin HEAD:"$SOURCE_BRANCH"
+
+  api_template_exact_head:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      SOURCE_REPO: 'ORESoftware/ores-api-server.template.rs'
+      SOURCE_BRANCH: 'feat/portable-edge-middleware-hook-20260922'
+      SOURCE_HEAD: 'fd76c082633b8181823eeb120f7937f84ce797b7'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Configure private source access
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: '${{ secrets.ORE_SOURCE_PAT }}'
+        run: |
+          set -euo pipefail
+          test -n "$ORE_SOURCE_PAT"
+          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+      - name: Fetch exact API template PR head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init source
+          git -C source remote add origin "https://github.com/${SOURCE_REPO}.git"
+          git -C source fetch --depth=1 origin "$SOURCE_BRANCH"
+          test "$(git -C source rev-parse FETCH_HEAD)" = "$SOURCE_HEAD"
+          git -C source checkout -b certified "$SOURCE_HEAD"
+      - name: Resolve Zed dependencies and certify API template
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.88.0 --profile minimal --no-self-update
+          rustup default 1.88.0
+          rustup component add rustfmt clippy
+          bash scripts/install-zed-deps.sh
+          cargo fmt --all -- --check
+          cargo check --all-targets
+          cargo test --all-targets
+          cargo clippy --all-targets -- -D warnings
+          git diff --check
+          rm -f Cargo.lock
+          test -z "$(git diff --name-only)"
