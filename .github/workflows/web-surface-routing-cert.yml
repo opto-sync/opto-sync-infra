@@ -20,7 +20,7 @@ jobs:
     env:
       SOURCE_REPO: 'ORESoftware/ores-stack'
       SOURCE_BRANCH: 'harden/web-surface-routing-20260922-v2'
-      SOURCE_HEAD: 'bd9e2ed5282655655221212f984077e0ee7f89b6'
+      SOURCE_HEAD: '07dc29b595302e668f30a9a077c6b75049cdc415'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with: { persist-credentials: false }
