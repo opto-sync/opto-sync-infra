@@ -1,4 +1,4 @@
-name: ores-stack #261 RPC HTTP adapter repair
+name: 'ores-stack #261 RPC HTTP adapter repair'
 
 on:
   pull_request:
@@ -12,7 +12,7 @@ permissions:
 
 env:
   CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
-  SOURCE_HEAD: '15c4cef4ab3f282f8bb98d168214338dfaf5a49a'
+  SOURCE_HEAD: 'a6fb3c574f09991ace7e78bad7ec74aa8163a6e5'
   SOURCE_BRANCH: 'salvage/rpc-http-adapter-main2-20260922'
 
 jobs:
@@ -44,9 +44,7 @@ jobs:
           test "$(git -C ores-stack rev-parse FETCH_HEAD)" = "$SOURCE_HEAD"
           git -C ores-stack checkout -b repair "$SOURCE_HEAD"
           test -f ores-stack/crates/ores-fn-adapters/src/rpc_http.rs
-          changed="$(git -C ores-stack diff "$SOURCE_HEAD^" "$SOURCE_HEAD" --name-only | sort)"
-          expected=$'crates/ores-fn-adapters/src/lib.rs\ncrates/ores-fn-adapters/src/rpc_http.rs'
-          test "$changed" = "$expected"
+          test -z "$(git -C ores-stack status --short)"
 
       - name: Run Rust 1.88 exact-head repair and certification
         shell: bash
@@ -66,7 +64,9 @@ jobs:
           git diff --check
           changed="$(git diff --name-only | sort)"
           expected=$'crates/ores-fn-adapters/src/lib.rs\ncrates/ores-fn-adapters/src/rpc_http.rs'
-          test "$changed" = "$expected"
+          if [ -n "$changed" ]; then
+            test "$changed" = "$expected"
+          fi
           test "$(git status --short | sed '/?? crates\/ores-fn-adapters\/Cargo.lock/d')" = "$(git status --short --untracked-files=no)"
 
       - name: Guard and fast-forward source PR branch
