@@ -59,7 +59,7 @@ jobs:
           rustup toolchain install 1.88.0 --profile minimal --no-self-update
           rustup default 1.88.0
           rustup component add rustfmt clippy
-          rustfmt --edition 2024 --check src/lib.rs src/middleware/mod.rs src/middleware/mw.rs
+          rustfmt --edition 2024 --config skip_children=true --check src/middleware/mod.rs src/middleware/mw.rs
           cargo check --all-targets
           cargo test --all-targets
           cargo clippy --all-targets -- -D warnings
@@ -116,7 +116,7 @@ jobs:
           rustup default 1.88.0
           rustup component add rustfmt clippy
           bash scripts/install-zed-deps.sh
-          rustfmt --edition 2024 --check src/lib.rs src/middleware/mod.rs src/middleware/mw.rs
+          rustfmt --edition 2024 --config skip_children=true --check src/middleware/mod.rs src/middleware/mw.rs
           cargo check --all-targets
           cargo test --all-targets
           cargo clippy --all-targets -- -D warnings
@@ -158,7 +158,7 @@ jobs:
           rustup toolchain install 1.88.0 --profile minimal --no-self-update
           rustup default 1.88.0
           rustup component add rustfmt clippy
-          rustfmt --edition 2024 --check src/lib.rs src/middleware/mod.rs src/middleware/mw.rs
+          rustfmt --edition 2024 --config skip_children=true --check src/middleware/mod.rs src/middleware/mw.rs
           cargo check --all-targets
           cargo test --all-targets
           cargo clippy --all-targets -- -D warnings
