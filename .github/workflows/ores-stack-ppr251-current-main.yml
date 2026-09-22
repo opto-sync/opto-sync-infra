@@ -49,10 +49,10 @@ jobs:
           test "$(git -C ores-stack rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
           git -C ores-stack fetch --depth=1 origin "$SOURCE_HEAD"
           test "$(git -C ores-stack rev-parse FETCH_HEAD)" = "$SOURCE_HEAD"
-          test "$(git -C ores-stack rev-parse "$SOURCE_HEAD:crates/ores-stack-cli/src/entry.rs")" = "$ENTRY_BLOB"
-          test "$(git -C ores-stack rev-parse "$SOURCE_HEAD:crates/ores-stack-cli/src/ppr_middleware_wrapper.rs")" = "$WRAPPER_BLOB"
           git -C ores-stack show "$SOURCE_HEAD:crates/ores-stack-cli/src/entry.rs" > ores-stack/crates/ores-stack-cli/src/entry.rs
           git -C ores-stack show "$SOURCE_HEAD:crates/ores-stack-cli/src/ppr_middleware_wrapper.rs" > ores-stack/crates/ores-stack-cli/src/ppr_middleware_wrapper.rs
+          test "$(git -C ores-stack hash-object crates/ores-stack-cli/src/entry.rs)" = "$ENTRY_BLOB"
+          test "$(git -C ores-stack hash-object crates/ores-stack-cli/src/ppr_middleware_wrapper.rs)" = "$WRAPPER_BLOB"
           sed -i "s/b930660d34896db1ab285c3b9bd97deaa37dc9ad/$MIDDLEWARE_REV/g" ores-stack/crates/ores-stack-cli/src/ppr_middleware_wrapper.rs
           sed -i "s/1b2eda561882a38bc30f434810520d9c970810d2/$PROTOCOL_REV/g" ores-stack/crates/ores-stack-cli/src/ppr_middleware_wrapper.rs
           grep -Fq "const ORES_MIDDLEWARE_ABI_REV: &str = \"$MIDDLEWARE_REV\";" ores-stack/crates/ores-stack-cli/src/ppr_middleware_wrapper.rs
