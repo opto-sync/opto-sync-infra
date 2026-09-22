@@ -20,11 +20,11 @@ jobs:
         include:
           - repo: ORESoftware/admin-api-server-template.rs
             branch: feat/portable-edge-middleware-hook-20260922
-            source_sha: 1ae31df888d8d954c1893ceae0cdd1dea60688db
+            source_sha: 66bff1ebf8b331430ebe81b86d7559b37140d799
             materialize_zed: 'false'
           - repo: ORESoftware/admin-web-server-template.rs
             branch: feat/middleware-authored-wrapper-20260922
-            source_sha: e60cba76dbff63cb1f35a6d595578c98de96f6ba
+            source_sha: ea866411f8d0dc9bec747bc5cc63a44bb37686ef
             materialize_zed: 'true'
     env:
       CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
@@ -87,10 +87,6 @@ jobs:
         run: |
           set -euo pipefail
           rustfmt --edition 2024 --check src/middleware/mod.rs src/middleware/mw.rs
-          # The merged middleware logger currently requires tokio ~1.47.5 while
-          # these template locks still contain 1.53.1. Repair that one known
-          # resolver edge explicitly; resolution also records the new immutable
-          # middleware git identity. No authored source may change here.
           cargo update -p tokio@1.53.1 --precise 1.47.5
           changed="$(git diff --name-only)"
           if [ -n "$changed" ]; then
