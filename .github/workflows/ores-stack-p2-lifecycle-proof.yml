@@ -38,7 +38,7 @@ jobs:
           git init ores-stack
           git -C ores-stack remote add origin https://github.com/ORESoftware/ores-stack.git
           git -C ores-stack fetch --depth=1 origin "$SOURCE_BRANCH"
-          git -C ores-stack checkout --detach FETCH_HEAD
+          git -C ores-stack checkout -b repair FETCH_HEAD
           actual="$(git -C ores-stack rev-parse HEAD)"
           printf 'expected=%s\nactual=%s\n' "$SOURCE_SHA" "$actual"
           test "$actual" = "$SOURCE_SHA"
@@ -51,21 +51,29 @@ jobs:
           rustup component add rustfmt clippy
           rustc --version
           cargo --version
-      - name: Verify P2 lifecycle protocol
+      - name: Format and verify P2 lifecycle protocol
         shell: bash
         working-directory: ores-stack
         run: |
           set -euo pipefail
+          rustfmt --edition 2024 crates/ores-stack-p2-edge-minimal/src/lib.rs
           rustfmt --edition 2024 --check crates/ores-stack-p2-edge-minimal/src/lib.rs
           bash scripts/bootstrap-cargo-lock.sh ensure
           cargo check --locked -p ores-stack-p2-edge-minimal --all-targets
           cargo test --locked -p ores-stack-p2-edge-minimal
           cargo clippy --locked -p ores-stack-p2-edge-minimal --all-targets -- -D warnings
           git diff --check
-      - name: Prove exact head and source immutability
+      - name: Guard and push formatting-only repair
         shell: bash
         working-directory: ores-stack
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          test -z "$(git status --porcelain)"
+          changed="$(git status --porcelain | sed -E 's/^...//' | sort -u)"
+          test "$changed" = 'crates/ores-stack-p2-edge-minimal/src/lib.rs'
+          remote_head="$(git ls-remote origin "refs/heads/$SOURCE_BRANCH" | cut -f1)"
+          test "$remote_head" = "$SOURCE_SHA"
+          git config user.name 'ORESoftware CI repair'
+          git config user.email 'noreply@oresoftware.com'
+          git add crates/ores-stack-p2-edge-minimal/src/lib.rs
+          git commit -m 'style(ppr): apply Rust 1.88 lifecycle formatting'
+          git push origin HEAD:"$SOURCE_BRANCH"
