@@ -42,6 +42,48 @@ jobs:
           actual="$(git -C ores-stack rev-parse HEAD)"
           printf 'expected=%s\nactual=%s\n' "$SOURCE_SHA" "$actual"
           test "$actual" = "$SOURCE_SHA"
+      - name: Apply demonstrated lifecycle layout repair
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('crates/ores-stack-p2-edge-minimal/src/lib.rs')
+          text = path.read_text()
+          old = '''    Begin {
+              schema: String,
+              request: MiddlewareHostRequest,
+              context: RequestContext,
+          },'''.replace('      ', '')
+          new = '''    Begin {
+              schema: String,
+              request: Box<MiddlewareHostRequest>,
+              context: Box<RequestContext>,
+          },'''.replace('      ', '')
+          if text.count(old) != 1:
+              raise SystemExit('expected exactly one LifecycleInputFrame::Begin declaration')
+          text = text.replace(old, new)
+          old = '''        Self::Begin {
+              schema: P2_EDGE_MINIMAL_LIFECYCLE_SCHEMA.to_owned(),
+              request,
+              context,
+          }'''.replace('      ', '')
+          new = '''        Self::Begin {
+              schema: P2_EDGE_MINIMAL_LIFECYCLE_SCHEMA.to_owned(),
+              request: Box::new(request),
+              context: Box::new(context),
+          }'''.replace('      ', '')
+          if text.count(old) != 1:
+              raise SystemExit('expected exactly one lifecycle begin constructor')
+          text = text.replace(old, new)
+          old = '            (request, context)\n'
+          new = '            (*request, *context)\n'
+          if text.count(old) != 1:
+              raise SystemExit('expected exactly one lifecycle begin handoff tuple')
+          text = text.replace(old, new)
+          path.write_text(text)
+          PY
       - name: Install Rust 1.88
         shell: bash
         run: |
@@ -63,7 +105,7 @@ jobs:
           cargo test --locked -p ores-stack-p2-edge-minimal
           cargo clippy --locked -p ores-stack-p2-edge-minimal --all-targets -- -D warnings
           git diff --check
-      - name: Guard and push formatting-only repair
+      - name: Guard and push certified source repair
         shell: bash
         working-directory: ores-stack
         run: |
@@ -75,5 +117,5 @@ jobs:
           git config user.name 'ORESoftware CI repair'
           git config user.email 'noreply@oresoftware.com'
           git add crates/ores-stack-p2-edge-minimal/src/lib.rs
-          git commit -m 'style(ppr): apply Rust 1.88 lifecycle formatting'
+          git commit -m 'fix(ppr): bound lifecycle control-frame enum size'
           git push origin HEAD:"$SOURCE_BRANCH"
