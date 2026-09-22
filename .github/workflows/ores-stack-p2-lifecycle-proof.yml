@@ -12,8 +12,7 @@ permissions:
 
 env:
   CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
-  SOURCE_BRANCH: 'feat/ppr-p2-terminal-lifecycle-20260922'
-  SOURCE_SHA: 'a8b735195ae093cc0b36796d6bd585a283ad9b42'
+  SOURCE_SHA: 'abfb13e1c76b9d20711143cd669c9eb29ac0fb0f'
 
 jobs:
   certify:
@@ -31,37 +30,17 @@ jobs:
           set -euo pipefail
           test -n "$ORE_SOURCE_PAT"
           git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
-      - name: Fetch exact ores-stack candidate
+      - name: Fetch immutable ores-stack candidate
         shell: bash
         run: |
           set -euo pipefail
           git init ores-stack
           git -C ores-stack remote add origin https://github.com/ORESoftware/ores-stack.git
           git -C ores-stack fetch --depth=1 origin "$SOURCE_SHA"
-          git -C ores-stack checkout -b repair FETCH_HEAD
+          git -C ores-stack checkout --detach FETCH_HEAD
           actual="$(git -C ores-stack rev-parse HEAD)"
           printf 'expected=%s\nactual=%s\n' "$SOURCE_SHA" "$actual"
           test "$actual" = "$SOURCE_SHA"
-      - name: Apply demonstrated lifecycle layout repair
-        shell: bash
-        working-directory: ores-stack
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('crates/ores-stack-p2-edge-minimal/src/lib.rs')
-          text = path.read_text()
-          replacements = [
-              ('    Begin {\n        schema: String,\n        request: MiddlewareHostRequest,\n        context: RequestContext,\n    },', '    Begin {\n        schema: String,\n        request: Box<MiddlewareHostRequest>,\n        context: Box<RequestContext>,\n    },', 'LifecycleInputFrame begin fields'),
-              ('        Self::Begin {\n            schema: P2_EDGE_MINIMAL_LIFECYCLE_SCHEMA.to_owned(),\n            request,\n            context,\n        }', '        Self::Begin {\n            schema: P2_EDGE_MINIMAL_LIFECYCLE_SCHEMA.to_owned(),\n            request: Box::new(request),\n            context: Box::new(context),\n        }', 'lifecycle begin constructor'),
-              ('        } => {\n            validate_lifecycle_schema(&schema)?;\n            request\n                .validate()\n                .map_err(|_| "invalid_middleware_host_request".to_owned())?;\n            (request, context)\n        }', '        } => {\n            validate_lifecycle_schema(&schema)?;\n            request\n                .validate()\n                .map_err(|_| "invalid_middleware_host_request".to_owned())?;\n            (*request, *context)\n        }', 'lifecycle begin handoff'),
-          ]
-          for old, new, label in replacements:
-              if text.count(old) != 1:
-                  raise SystemExit(f'expected exactly one {label}')
-              text = text.replace(old, new, 1)
-          path.write_text(text)
-          PY
       - name: Install Rust 1.88
         shell: bash
         run: |
@@ -71,29 +50,16 @@ jobs:
           rustup component add rustfmt clippy
           rustc --version
           cargo --version
-      - name: Format and verify P2 lifecycle protocol
+      - name: Verify exact P2 lifecycle head
         shell: bash
         working-directory: ores-stack
         run: |
           set -euo pipefail
-          rustfmt --edition 2024 crates/ores-stack-p2-edge-minimal/src/lib.rs
           rustfmt --edition 2024 --check crates/ores-stack-p2-edge-minimal/src/lib.rs
           bash scripts/bootstrap-cargo-lock.sh ensure
           cargo check --locked -p ores-stack-p2-edge-minimal --all-targets
           cargo test --locked -p ores-stack-p2-edge-minimal
           cargo clippy --locked -p ores-stack-p2-edge-minimal --all-targets -- -D warnings
           git diff --check
-      - name: Guard and push certified source repair
-        shell: bash
-        working-directory: ores-stack
-        run: |
-          set -euo pipefail
-          changed="$(git status --porcelain | sed -E 's/^...//' | sort -u)"
-          test "$changed" = 'crates/ores-stack-p2-edge-minimal/src/lib.rs'
-          remote_head="$(git ls-remote origin "refs/heads/$SOURCE_BRANCH" | cut -f1)"
-          test "$remote_head" = "$SOURCE_SHA"
-          git config user.name 'ORESoftware CI repair'
-          git config user.email 'noreply@oresoftware.com'
-          git add crates/ores-stack-p2-edge-minimal/src/lib.rs
-          git commit -m 'fix(ppr): bound lifecycle control-frame enum size'
-          git push origin HEAD:"$SOURCE_BRANCH"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
