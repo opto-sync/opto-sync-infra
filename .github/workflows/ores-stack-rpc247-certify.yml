@@ -1,0 +1,85 @@
+name: ores-stack-rpc247-certify
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ores-stack-rpc247-certify.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+  SOURCE_HEAD: 'ce6b14759eea92211c774f1727e8a56acf57051b'
+  SOURCE_BRANCH: 'salvage/rpc-http-adapter-main-20260922'
+  OUTPUT_BRANCH: 'salvage/rpc-http-adapter-certified-main-20260922'
+  LIB_BLOB: 'fa806657e08c23a882dbe40008b69568bdb99e09'
+  RPC_BLOB: '14b806661cd0908079ff8ab0e699dd6c085d6c5c'
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with: { persist-credentials: false }
+      - name: Configure private source access
+        shell: bash
+        env: { ORE_SOURCE_PAT: '${{ secrets.ORE_SOURCE_PAT }}' }
+        run: |
+          set -euo pipefail
+          test -n "$ORE_SOURCE_PAT"
+          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+      - name: Build clean current-main successor tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init ores-stack
+          git -C ores-stack remote add origin https://github.com/ORESoftware/ores-stack.git
+          git -C ores-stack fetch --depth=1 origin main
+          MAIN_SHA="$(git -C ores-stack rev-parse FETCH_HEAD)"
+          printf '%s\n' "$MAIN_SHA" > "$RUNNER_TEMP/main-sha"
+          git -C ores-stack checkout -b certified "$MAIN_SHA"
+          git -C ores-stack fetch --depth=1 origin "$SOURCE_BRANCH"
+          test "$(git -C ores-stack rev-parse FETCH_HEAD)" = "$SOURCE_HEAD"
+          test "$(git -C ores-stack rev-parse "$SOURCE_HEAD:crates/ores-fn-adapters/src/lib.rs")" = "$LIB_BLOB"
+          test "$(git -C ores-stack rev-parse "$SOURCE_HEAD:crates/ores-fn-adapters/src/rpc_http.rs")" = "$RPC_BLOB"
+          git -C ores-stack show "$SOURCE_HEAD:crates/ores-fn-adapters/src/lib.rs" > ores-stack/crates/ores-fn-adapters/src/lib.rs
+          git -C ores-stack show "$SOURCE_HEAD:crates/ores-fn-adapters/src/rpc_http.rs" > ores-stack/crates/ores-fn-adapters/src/rpc_http.rs
+          test "$(git -C ores-stack hash-object crates/ores-fn-adapters/src/lib.rs)" = "$LIB_BLOB"
+          test "$(git -C ores-stack hash-object crates/ores-fn-adapters/src/rpc_http.rs)" = "$RPC_BLOB"
+          changed="$(git -C ores-stack diff --name-only | sort)"
+          expected=$'crates/ores-fn-adapters/src/lib.rs\ncrates/ores-fn-adapters/src/rpc_http.rs'
+          test "$changed" = "$expected"
+      - name: Run Rust 1.88 exact-tree certification
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.88.0 --profile minimal --no-self-update
+          rustup default 1.88.0
+          rustup component add rustfmt clippy
+          rustfmt --edition 2024 crates/ores-fn-adapters/src/lib.rs crates/ores-fn-adapters/src/rpc_http.rs
+          cargo check --manifest-path crates/ores-fn-adapters/Cargo.toml --all-targets
+          cargo test --manifest-path crates/ores-fn-adapters/Cargo.toml
+          cargo clippy --manifest-path crates/ores-fn-adapters/Cargo.toml --all-targets -- -D warnings
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected=$'crates/ores-fn-adapters/src/lib.rs\ncrates/ores-fn-adapters/src/rpc_http.rs'
+          test "$changed" = "$expected"
+      - name: Guard and push certified successor
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          start_main="$(cat "$RUNNER_TEMP/main-sha")"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$start_main"
+          test "$(git ls-remote origin "refs/heads/$SOURCE_BRANCH" | cut -f1)" = "$SOURCE_HEAD"
+          test -z "$(git ls-remote origin "refs/heads/$OUTPUT_BRANCH" | cut -f1)"
+          git config user.name 'ORESoftware CI certification'
+          git config user.email 'noreply@oresoftware.com'
+          git add crates/ores-fn-adapters/src/lib.rs crates/ores-fn-adapters/src/rpc_http.rs
+          git commit -m 'feat(lambda): certify canonical RPC provider HTTP adapter'
+          git push origin HEAD:"$OUTPUT_BRANCH"
