@@ -1,0 +1,124 @@
+name: admin-middleware-template-proof
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/admin-middleware-template-proof.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - repo: ORESoftware/admin-api-server-template.rs
+            branch: feat/portable-edge-middleware-hook-20260922
+            source_sha: 9da27d8d4ac5bcac4f10c271835f16e08ed6e24b
+          - repo: ORESoftware/admin-web-server-template.rs
+            branch: feat/middleware-authored-wrapper-20260922
+            source_sha: e60cba76dbff63cb1f35a6d595578c98de96f6ba
+    env:
+      CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+      SOURCE_REPO: ${{ matrix.repo }}
+      SOURCE_BRANCH: ${{ matrix.branch }}
+      SOURCE_SHA: ${{ matrix.source_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Configure private source access
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+        run: |
+          set -euo pipefail
+          test -n "$ORE_SOURCE_PAT"
+          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+          git config --global user.name "ores-ci-proof"
+          git config --global user.email "ci@oresoftware.com"
+
+      - name: Install Rust 1.88
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.88.0 --profile minimal --no-self-update
+          rustup default 1.88.0
+          rustup component add rustfmt clippy
+          rustc --version
+          cargo --version
+
+      - name: Fetch exact source candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init source
+          git -C source remote add origin "https://github.com/${SOURCE_REPO}.git"
+          git -C source fetch --depth=1 origin "$SOURCE_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(git ls-remote "https://github.com/${SOURCE_REPO}.git" "refs/heads/${SOURCE_BRANCH}" | cut -f1)" = "$SOURCE_SHA"
+
+      - name: Resolve lock and certify candidate tree
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo update -p ores-middleware
+          changed="$(git diff --name-only)"
+          if [ -n "$changed" ]; then
+            test "$changed" = "Cargo.lock"
+          fi
+          cargo check --locked --all-targets
+          cargo test --locked
+          cargo clippy --locked --all-targets -- -D warnings
+          git diff --check
+
+      - name: Push resolver-produced lock only when needed
+        id: push
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote "https://github.com/${SOURCE_REPO}.git" "refs/heads/${SOURCE_BRANCH}" | cut -f1)" = "$SOURCE_SHA"
+          if git diff --quiet -- Cargo.lock; then
+            final_sha="$SOURCE_SHA"
+          else
+            test "$(git diff --name-only)" = "Cargo.lock"
+            git add Cargo.lock
+            git commit -m "chore: refresh middleware lifecycle lock"
+            git push origin "HEAD:refs/heads/${SOURCE_BRANCH}"
+            final_sha="$(git rev-parse HEAD)"
+          fi
+          echo "final_sha=$final_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Re-fetch and certify final pushed head
+        shell: bash
+        env:
+          FINAL_SHA: ${{ steps.push.outputs.final_sha }}
+        run: |
+          set -euo pipefail
+          remote_sha="$(git ls-remote "https://github.com/${SOURCE_REPO}.git" "refs/heads/${SOURCE_BRANCH}" | cut -f1)"
+          test "$remote_sha" = "$FINAL_SHA"
+          git init final
+          git -C final remote add origin "https://github.com/${SOURCE_REPO}.git"
+          git -C final fetch --depth=1 origin "$FINAL_SHA"
+          git -C final checkout --detach FETCH_HEAD
+          test "$(git -C final rev-parse HEAD)" = "$FINAL_SHA"
+          cd final
+          cargo fmt --all -- --check
+          cargo check --locked --all-targets
+          cargo test --locked
+          cargo clippy --locked --all-targets -- -D warnings
+          git diff --check
+          test -z "$(git status --porcelain)"
+          test "$(git ls-remote "https://github.com/${SOURCE_REPO}.git" "refs/heads/${SOURCE_BRANCH}" | cut -f1)" = "$FINAL_SHA"
+          printf '%s %s final exact head: %s\n' "$SOURCE_REPO" "$SOURCE_BRANCH" "$FINAL_SHA" >> "$GITHUB_STEP_SUMMARY"
