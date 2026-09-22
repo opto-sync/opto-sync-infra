@@ -54,7 +54,7 @@ jobs:
           cargo fmt --manifest-path crates/ores-fn-adapters/Cargo.toml
           git diff --check
           changed="$(git diff --name-only | sort)"
-          expected=$'crates/ores-fn-adapters/src/aws/direct.rs\ncrates/ores-fn-adapters/src/dispatch_input.rs\ncrates/ores-fn-adapters/src/gcp/http.rs'
+          expected=$'crates/ores-fn-adapters/src/aws/direct.rs\ncrates/ores-fn-adapters/src/dispatch_input.rs\ncrates/ores-fn-adapters/src/gcp/http.rs\ncrates/ores-fn-adapters/src/lib.rs'
           printf '%s\n' "$changed"
           test "$changed" = "$expected"
       - name: Certify formatted adapter crate
@@ -77,7 +77,8 @@ jobs:
           git config user.email 'noreply@oresoftware.com'
           git add crates/ores-fn-adapters/src/aws/direct.rs \
                   crates/ores-fn-adapters/src/dispatch_input.rs \
-                  crates/ores-fn-adapters/src/gcp/http.rs
+                  crates/ores-fn-adapters/src/gcp/http.rs \
+                  crates/ores-fn-adapters/src/lib.rs
           git commit -m 'style(lambda): rustfmt provider adapter baseline'
           test -z "$(git ls-remote origin "refs/heads/$OUTPUT_BRANCH" | cut -f1)" || { echo 'output branch exists' >&2; exit 1; }
           git push origin HEAD:"$OUTPUT_BRANCH"
