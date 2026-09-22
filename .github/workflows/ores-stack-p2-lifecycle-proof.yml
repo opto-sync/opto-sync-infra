@@ -51,37 +51,44 @@ jobs:
           from pathlib import Path
           path = Path('crates/ores-stack-p2-edge-minimal/src/lib.rs')
           text = path.read_text()
-          old = '''    Begin {
+
+          old = """    Begin {
               schema: String,
               request: MiddlewareHostRequest,
               context: RequestContext,
-          },'''.replace('      ', '')
-          new = '''    Begin {
+          },"""
+          old = old.replace("              ", "        ").replace("          },", "    },")
+          new = """    Begin {
               schema: String,
               request: Box<MiddlewareHostRequest>,
               context: Box<RequestContext>,
-          },'''.replace('      ', '')
+          },"""
+          new = new.replace("              ", "        ").replace("          },", "    },")
           if text.count(old) != 1:
               raise SystemExit('expected exactly one LifecycleInputFrame::Begin declaration')
-          text = text.replace(old, new)
-          old = '''        Self::Begin {
+          text = text.replace(old, new, 1)
+
+          old = """        Self::Begin {
               schema: P2_EDGE_MINIMAL_LIFECYCLE_SCHEMA.to_owned(),
               request,
               context,
-          }'''.replace('      ', '')
-          new = '''        Self::Begin {
+          }"""
+          old = old.replace("              ", "            ").replace("          }", "        }")
+          new = """        Self::Begin {
               schema: P2_EDGE_MINIMAL_LIFECYCLE_SCHEMA.to_owned(),
               request: Box::new(request),
               context: Box::new(context),
-          }'''.replace('      ', '')
+          }"""
+          new = new.replace("              ", "            ").replace("          }", "        }")
           if text.count(old) != 1:
               raise SystemExit('expected exactly one lifecycle begin constructor')
-          text = text.replace(old, new)
+          text = text.replace(old, new, 1)
+
           old = '            (request, context)\n'
           new = '            (*request, *context)\n'
           if text.count(old) != 1:
               raise SystemExit('expected exactly one lifecycle begin handoff tuple')
-          text = text.replace(old, new)
+          text = text.replace(old, new, 1)
           path.write_text(text)
           PY
       - name: Install Rust 1.88
