@@ -1,0 +1,62 @@
+name: ores-stack-p2-lifecycle-product
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ores-stack-p2-lifecycle-product.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+  EXPECTED_ORES_STACK_SHA: 'b1e74b7e2b7a6fe5063db6ed571baee42642d632'
+
+jobs:
+  prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Require scoped source PAT
+        shell: bash
+        env: { ORE_SOURCE_PAT: '${{ secrets.ORE_SOURCE_PAT }}' }
+        run: |
+          set -euo pipefail
+          test -n "$ORE_SOURCE_PAT"
+          echo "::add-mask::$ORE_SOURCE_PAT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v6
+        with:
+          repository: ORESoftware/ores-stack
+          ref: ${{ env.EXPECTED_ORES_STACK_SHA }}
+          token: ${{ secrets.ORE_SOURCE_PAT }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Guard exact source
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_ORES_STACK_SHA"
+      - name: Configure private Cargo Git auth
+        shell: bash
+        env: { ORE_SOURCE_PAT: '${{ secrets.ORE_SOURCE_PAT }}' }
+        run: |
+          set -euo pipefail
+          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+      - name: Install Rust 1.88
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with: { toolchain: 1.88.0, components: rustfmt,clippy }
+      - name: Format gate
+        run: cargo fmt --manifest-path crates/ores-stack-p2-edge-minimal/Cargo.toml -- --check
+      - name: Locked check
+        run: cargo check --locked -p ores-stack-p2-edge-minimal --all-targets
+      - name: Tests
+        run: cargo test --locked -p ores-stack-p2-edge-minimal
+      - name: Strict clippy
+        run: cargo clippy --locked -p ores-stack-p2-edge-minimal --all-targets -- -D warnings
+      - name: Source drift guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          test -z "$(git status --short)"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_ORES_STACK_SHA"
+          echo P2_LIFECYCLE_V2_PROOF_PASS
