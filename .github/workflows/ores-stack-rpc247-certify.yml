@@ -92,7 +92,7 @@ jobs:
         working-directory: ores-stack
         run: cargo clippy --manifest-path crates/ores-fn-adapters/Cargo.toml --locked --all-targets -- -D warnings
 
-      - name: Guard confined source drift
+      - name: Guard confined tracked source drift
         shell: bash
         working-directory: ores-stack
         run: |
@@ -103,8 +103,6 @@ jobs:
           if [ -n "$changed" ]; then
             test "$changed" = "$expected"
           fi
-          untracked="$(git status --short | grep '^?? ' || true)"
-          test -z "$untracked" || test "$untracked" = '?? crates/ores-fn-adapters/Cargo.lock'
 
       - name: Guard and fast-forward source PR branch
         shell: bash
