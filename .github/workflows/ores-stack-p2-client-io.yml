@@ -1,0 +1,204 @@
+name: ores-stack-p2-client-io
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ores-stack-p2-client-io.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+  SOURCE_BASE_SHA: 'bc513f56ae3b52770f59e560d0630e4b92ee770b'
+  SOURCE_BRANCH: 'feat/p2-lifecycle-client-io-20260922'
+  TARGET_FILE: 'crates/ores-stack-p2-edge-minimal/src/lib.rs'
+
+jobs:
+  certify-and-push:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Configure private source access
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+        run: |
+          set -euo pipefail
+          test -n "$ORE_SOURCE_PAT"
+          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+          git config --global user.name "ORESoftware CI"
+          git config --global user.email "alexander.d.mills@gmail.com"
+
+      - name: Fetch guarded ores-stack source branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init ores-stack
+          git -C ores-stack remote add origin https://github.com/ORESoftware/ores-stack.git
+          git -C ores-stack fetch --depth=1 origin "$SOURCE_BRANCH"
+          git -C ores-stack checkout -B "$SOURCE_BRANCH" FETCH_HEAD
+          test "$(git -C ores-stack rev-parse HEAD)" = "$SOURCE_BASE_SHA"
+          test "$(git -C ores-stack ls-remote origin "refs/heads/$SOURCE_BRANCH" | cut -f1)" = "$SOURCE_BASE_SHA"
+
+      - name: Add symmetric bounded P1 lifecycle IO
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("crates/ores-stack-p2-edge-minimal/src/lib.rs")
+          text = path.read_text()
+
+          helper_anchor = '''pub fn read_lifecycle_input_frame<R: BufRead>(
+              input: &mut R,
+          ) -> Result<LifecycleInputFrame, String> {
+              let frame = read_json_line(input)?;
+              serde_json::from_str(&frame).map_err(|_| "control_frame_invalid_json".to_owned())
+          }
+
+          '''
+          helper_insert = helper_anchor + '''/// P1-side writer for the lifecycle control channel.
+          ///
+          /// Uses the same bounded newline-delimited JSON authority as P2 output.
+          pub fn write_lifecycle_input_frame<W: Write>(
+              output: &mut W,
+              frame: &LifecycleInputFrame,
+          ) -> Result<(), String> {
+              write_json_line(output, frame)
+          }
+
+          /// P1-side reader for one lifecycle response frame.
+          ///
+          /// This intentionally reads exactly one bounded frame without requiring EOF because
+          /// a valid lifecycle session receives admission first and the terminal `Finished`
+          /// acknowledgement only after P1 sends its finish report.
+          pub fn read_lifecycle_output_frame<R: BufRead>(
+              input: &mut R,
+          ) -> Result<LifecycleOutputFrame, String> {
+              let frame = read_json_line(input)?;
+              serde_json::from_str(&frame).map_err(|_| "control_frame_invalid_json".to_owned())
+          }
+
+          '''
+          if text.count(helper_anchor) != 1:
+              raise SystemExit("lifecycle input helper anchor moved")
+          text = text.replace(helper_anchor, helper_insert, 1)
+
+          test_anchor = '''    #[tokio::test]
+              async fn continue_returns_canonical_revalidated_host_request() {
+          '''
+          tests = '''    #[test]
+              fn p1_lifecycle_io_helpers_round_trip_bounded_frames() {
+                  let begin = LifecycleInputFrame::begin(host_request("/v1/rpc"), context());
+                  let finish = LifecycleInputFrame::finish(
+                      TerminalOutcome::Completed,
+                      Some(204),
+                      17,
+                      9,
+                  );
+                  let mut input_wire = Vec::new();
+                  write_lifecycle_input_frame(&mut input_wire, &begin).expect("write begin");
+                  write_lifecycle_input_frame(&mut input_wire, &finish).expect("write finish");
+                  let mut input = Cursor::new(input_wire);
+                  assert_eq!(
+                      read_lifecycle_input_frame(&mut input).expect("read begin"),
+                      begin
+                  );
+                  assert_eq!(
+                      read_lifecycle_input_frame(&mut input).expect("read finish"),
+                      finish
+                  );
+
+                  let outputs = [
+                      LifecycleOutputFrame::Continue {
+                          request: host_request("/v1/rpc"),
+                      },
+                      LifecycleOutputFrame::Finished,
+                  ];
+                  let mut output_wire = Vec::new();
+                  write_lifecycle_output_frame(&mut output_wire, &outputs[0])
+                      .expect("write admission");
+                  write_lifecycle_output_frame(&mut output_wire, &outputs[1])
+                      .expect("write finish ack");
+                  let mut output = Cursor::new(output_wire);
+                  assert_eq!(
+                      read_lifecycle_output_frame(&mut output).expect("read admission"),
+                      outputs[0].clone()
+                  );
+                  assert_eq!(
+                      read_lifecycle_output_frame(&mut output).expect("read finish ack"),
+                      outputs[1].clone()
+                  );
+              }
+
+              #[test]
+              fn p1_lifecycle_output_reader_reuses_bounded_frame_authority() {
+                  let oversized = format!("{}\\n", "x".repeat(MAX_CONTROL_FRAME_BYTES + 8));
+                  assert_eq!(
+                      read_lifecycle_output_frame(&mut Cursor::new(oversized)),
+                      Err("control_frame_too_large".to_owned())
+                  );
+
+                  let unterminated =
+                      serde_json::to_vec(&LifecycleOutputFrame::Finished).expect("encode");
+                  assert_eq!(
+                      read_lifecycle_output_frame(&mut Cursor::new(unterminated)),
+                      Err("control_frame_unterminated".to_owned())
+                  );
+              }
+
+          ''' + test_anchor
+          if text.count(test_anchor) != 1:
+              raise SystemExit("test insertion anchor moved")
+          text = text.replace(test_anchor, tests, 1)
+          path.write_text(text)
+          PY
+          test "$(git diff --name-only | tr -d '\r')" = "$TARGET_FILE"
+          git diff --check
+
+      - name: Install Rust 1.88
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.88.0 --profile minimal --no-self-update
+          rustup default 1.88.0
+          rustup component add rustfmt clippy
+          rustc --version
+          cargo --version
+
+      - name: Certify canonical protocol authority
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          rustfmt --edition 2024 "$TARGET_FILE"
+          rustfmt --edition 2024 --check "$TARGET_FILE"
+          bash scripts/bootstrap-cargo-lock.sh ensure
+          cargo check --locked -p ores-stack-p2-edge-minimal --all-targets
+          cargo test --locked -p ores-stack-p2-edge-minimal
+          cargo clippy --locked -p ores-stack-p2-edge-minimal --all-targets -- -D warnings
+          git diff --check
+          test "$(git diff --name-only | tr -d '\r')" = "$TARGET_FILE"
+
+      - name: Commit and push only the certified source delta
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_BASE_SHA"
+          test "$(git ls-remote origin "refs/heads/$SOURCE_BRANCH" | cut -f1)" = "$SOURCE_BASE_SHA"
+          test "$(git diff --name-only | tr -d '\r')" = "$TARGET_FILE"
+          git diff --check
+          git add "$TARGET_FILE"
+          git commit -m 'feat(p2): expose bounded lifecycle client IO'
+          git push origin "HEAD:refs/heads/$SOURCE_BRANCH"
+          test -z "$(git status --porcelain)"
