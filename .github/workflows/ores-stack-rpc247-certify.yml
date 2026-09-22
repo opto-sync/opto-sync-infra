@@ -46,7 +46,7 @@ jobs:
           test -f ores-stack/crates/ores-fn-adapters/src/rpc_http.rs
           test -z "$(git -C ores-stack status --short)"
 
-      - name: Run Rust 1.88 exact-head repair and certification
+      - name: Install Rust 1.88
         shell: bash
         working-directory: ores-stack
         run: |
@@ -55,19 +55,58 @@ jobs:
           rustup default 1.88.0
           rustup component add rustfmt clippy
 
+      - name: Rustfmt adapter sources
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
           rustfmt --edition 2024 crates/ores-fn-adapters/src/lib.rs crates/ores-fn-adapters/src/rpc_http.rs
-          cargo generate-lockfile --manifest-path crates/ores-fn-adapters/Cargo.toml
-          cargo check --manifest-path crates/ores-fn-adapters/Cargo.toml --locked --all-targets
-          cargo test --manifest-path crates/ores-fn-adapters/Cargo.toml --locked
-          cargo clippy --manifest-path crates/ores-fn-adapters/Cargo.toml --locked --all-targets -- -D warnings
-
           git diff --check
           changed="$(git diff --name-only | sort)"
           expected=$'crates/ores-fn-adapters/src/lib.rs\ncrates/ores-fn-adapters/src/rpc_http.rs'
           if [ -n "$changed" ]; then
             test "$changed" = "$expected"
           fi
-          test "$(git status --short | sed '/?? crates\/ores-fn-adapters\/Cargo.lock/d')" = "$(git status --short --untracked-files=no)"
+
+      - name: Generate standalone adapter lock
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          rm -f crates/ores-fn-adapters/Cargo.lock
+          cargo generate-lockfile --manifest-path crates/ores-fn-adapters/Cargo.toml
+          test -s crates/ores-fn-adapters/Cargo.lock
+
+      - name: Check standalone adapter crate
+        shell: bash
+        working-directory: ores-stack
+        run: cargo check --manifest-path crates/ores-fn-adapters/Cargo.toml --locked --all-targets
+
+      - name: Test standalone adapter crate
+        shell: bash
+        working-directory: ores-stack
+        run: cargo test --manifest-path crates/ores-fn-adapters/Cargo.toml --locked
+
+      - name: Clippy standalone adapter crate
+        shell: bash
+        working-directory: ores-stack
+        run: cargo clippy --manifest-path crates/ores-fn-adapters/Cargo.toml --locked --all-targets -- -D warnings
+
+      - name: Guard confined source drift
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected=$'crates/ores-fn-adapters/src/lib.rs\ncrates/ores-fn-adapters/src/rpc_http.rs'
+          if [ -n "$changed" ]; then
+            test "$changed" = "$expected"
+          fi
+          tracked_status="$(git status --short --untracked-files=no)"
+          test -z "$tracked_status" || printf '%s\n' "$tracked_status" | grep -Ev '^[ MARC?]{2} (crates/ores-fn-adapters/src/lib.rs|crates/ores-fn-adapters/src/rpc_http.rs)$' | test ! -s /dev/stdin
+          untracked="$(git status --short | grep '^?? ' || true)"
+          test "$untracked" = '?? crates/ores-fn-adapters/Cargo.lock'
 
       - name: Guard and fast-forward source PR branch
         shell: bash
