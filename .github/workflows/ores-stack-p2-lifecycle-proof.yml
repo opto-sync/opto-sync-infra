@@ -53,18 +53,46 @@ jobs:
           text = path.read_text()
           replacements = [
               (
-                  '        request: MiddlewareHostRequest,\n        context: RequestContext,',
-                  '        request: Box<MiddlewareHostRequest>,\n        context: Box<RequestContext>,',
+                  """    Begin {
+        schema: String,
+        request: MiddlewareHostRequest,
+        context: RequestContext,
+    },""",
+                  """    Begin {
+        schema: String,
+        request: Box<MiddlewareHostRequest>,
+        context: Box<RequestContext>,
+    },""",
                   'LifecycleInputFrame begin fields',
               ),
               (
-                  '            request,\n            context,',
-                  '            request: Box::new(request),\n            context: Box::new(context),',
+                  """        Self::Begin {
+            schema: P2_EDGE_MINIMAL_LIFECYCLE_SCHEMA.to_owned(),
+            request,
+            context,
+        }""",
+                  """        Self::Begin {
+            schema: P2_EDGE_MINIMAL_LIFECYCLE_SCHEMA.to_owned(),
+            request: Box::new(request),
+            context: Box::new(context),
+        }""",
                   'lifecycle begin constructor',
               ),
               (
-                  '            (request, context)\n',
-                  '            (*request, *context)\n',
+                  """        } => {
+            validate_lifecycle_schema(&schema)?;
+            request
+                .validate()
+                .map_err(|_| "invalid_middleware_host_request".to_owned())?;
+            (request, context)
+        }""",
+                  """        } => {
+            validate_lifecycle_schema(&schema)?;
+            request
+                .validate()
+                .map_err(|_| "invalid_middleware_host_request".to_owned())?;
+            (*request, *context)
+        }""",
                   'lifecycle begin handoff',
               ),
           ]
