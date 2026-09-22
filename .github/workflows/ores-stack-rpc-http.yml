@@ -1,0 +1,65 @@
+name: ores-stack RPC HTTP adapter proof
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ores-stack-rpc-http.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out exact restack
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ORESoftware/ores-stack
+          ref: da87972adac58f962d8a901676381533a16ee5ce
+          path: source
+          token: ${{ secrets.ORE_SOURCE_PAT }}
+          persist-credentials: false
+          fetch-depth: 2
+
+      - name: Prove lossless two-blob transplant
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "ebec1752123b77358342dfb3ca54c16986390501"
+          test "$(git rev-parse HEAD:crates/ores-fn-adapters/src/lib.rs)" = "fa806657e08c23a882dbe40008b69568bdb99e09"
+          test "$(git rev-parse HEAD:crates/ores-fn-adapters/src/rpc_http.rs)" = "14b806661cd0908079ff8ab0e699dd6c085d6c5c"
+          test "$(git rev-parse HEAD:crates/ores-fn-adapters/src/http_call.rs)" = "88eecbd08755e554a0dbcbd67056adac59653510"
+          test "$(git rev-parse HEAD:crates/ores-fn-adapters/src/reply.rs)" = "f34fbc66664c8fc2f233f4a430691ff16ea9a801"
+          mapfile -t changed < <(git diff --name-only HEAD^ HEAD | sort)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = "crates/ores-fn-adapters/src/lib.rs"
+          test "${changed[1]}" = "crates/ores-fn-adapters/src/rpc_http.rs"
+
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: 1.88.0
+          components: rustfmt,clippy
+
+      - name: Authenticate immutable Git dependencies
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+        run: |
+          set -euo pipefail
+          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+
+      - name: Exact package gates
+        working-directory: source
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo check --locked -p ores-fn-adapters
+          cargo test --locked -p ores-fn-adapters
+          cargo clippy --locked -p ores-fn-adapters --all-targets -- -D warnings
+          git diff --exit-code
