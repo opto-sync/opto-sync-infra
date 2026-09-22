@@ -13,7 +13,7 @@ permissions:
 env:
   CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
   SOURCE_BRANCH: 'feat/ppr-p2-terminal-lifecycle-20260922'
-  SOURCE_SHA: '393e858d87ea519dc7ab528a48d77335ce5f70db'
+  SOURCE_SHA: 'a8b735195ae093cc0b36796d6bd585a283ad9b42'
 
 jobs:
   certify:
@@ -37,7 +37,7 @@ jobs:
           set -euo pipefail
           git init ores-stack
           git -C ores-stack remote add origin https://github.com/ORESoftware/ores-stack.git
-          git -C ores-stack fetch --depth=1 origin "$SOURCE_BRANCH"
+          git -C ores-stack fetch --depth=1 origin "$SOURCE_SHA"
           git -C ores-stack checkout -b repair FETCH_HEAD
           actual="$(git -C ores-stack rev-parse HEAD)"
           printf 'expected=%s\nactual=%s\n' "$SOURCE_SHA" "$actual"
