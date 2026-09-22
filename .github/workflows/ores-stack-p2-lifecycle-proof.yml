@@ -52,49 +52,9 @@ jobs:
           path = Path('crates/ores-stack-p2-edge-minimal/src/lib.rs')
           text = path.read_text()
           replacements = [
-              (
-                  """    Begin {
-        schema: String,
-        request: MiddlewareHostRequest,
-        context: RequestContext,
-    },""",
-                  """    Begin {
-        schema: String,
-        request: Box<MiddlewareHostRequest>,
-        context: Box<RequestContext>,
-    },""",
-                  'LifecycleInputFrame begin fields',
-              ),
-              (
-                  """        Self::Begin {
-            schema: P2_EDGE_MINIMAL_LIFECYCLE_SCHEMA.to_owned(),
-            request,
-            context,
-        }""",
-                  """        Self::Begin {
-            schema: P2_EDGE_MINIMAL_LIFECYCLE_SCHEMA.to_owned(),
-            request: Box::new(request),
-            context: Box::new(context),
-        }""",
-                  'lifecycle begin constructor',
-              ),
-              (
-                  """        } => {
-            validate_lifecycle_schema(&schema)?;
-            request
-                .validate()
-                .map_err(|_| "invalid_middleware_host_request".to_owned())?;
-            (request, context)
-        }""",
-                  """        } => {
-            validate_lifecycle_schema(&schema)?;
-            request
-                .validate()
-                .map_err(|_| "invalid_middleware_host_request".to_owned())?;
-            (*request, *context)
-        }""",
-                  'lifecycle begin handoff',
-              ),
+              ('    Begin {\n        schema: String,\n        request: MiddlewareHostRequest,\n        context: RequestContext,\n    },', '    Begin {\n        schema: String,\n        request: Box<MiddlewareHostRequest>,\n        context: Box<RequestContext>,\n    },', 'LifecycleInputFrame begin fields'),
+              ('        Self::Begin {\n            schema: P2_EDGE_MINIMAL_LIFECYCLE_SCHEMA.to_owned(),\n            request,\n            context,\n        }', '        Self::Begin {\n            schema: P2_EDGE_MINIMAL_LIFECYCLE_SCHEMA.to_owned(),\n            request: Box::new(request),\n            context: Box::new(context),\n        }', 'lifecycle begin constructor'),
+              ('        } => {\n            validate_lifecycle_schema(&schema)?;\n            request\n                .validate()\n                .map_err(|_| "invalid_middleware_host_request".to_owned())?;\n            (request, context)\n        }', '        } => {\n            validate_lifecycle_schema(&schema)?;\n            request\n                .validate()\n                .map_err(|_| "invalid_middleware_host_request".to_owned())?;\n            (*request, *context)\n        }', 'lifecycle begin handoff'),
           ]
           for old, new, label in replacements:
               if text.count(old) != 1:
