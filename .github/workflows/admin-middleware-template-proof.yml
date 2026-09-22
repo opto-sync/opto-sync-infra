@@ -20,7 +20,7 @@ jobs:
         include:
           - repo: ORESoftware/admin-api-server-template.rs
             branch: feat/portable-edge-middleware-hook-20260922
-            source_sha: 764fd3428bcbd5617f3448858539a4c841f6a989
+            source_sha: be7227f55d11ba99048bd66ba9f961017d6827a1
             materialize_zed: 'false'
           - repo: ORESoftware/admin-web-server-template.rs
             branch: feat/middleware-authored-wrapper-20260922
