@@ -94,12 +94,12 @@ jobs:
       - name: Rustfmt entry source
         shell: bash
         working-directory: ores-stack
-        run: rustfmt --edition 2024 crates/ores-stack-cli/src/entry.rs
+        run: rustfmt --edition 2024 --config skip_children=true crates/ores-stack-cli/src/entry.rs
 
       - name: Rustfmt wrapper source
         shell: bash
         working-directory: ores-stack
-        run: rustfmt --edition 2024 crates/ores-stack-cli/src/ppr_middleware_wrapper.rs
+        run: rustfmt --edition 2024 --config skip_children=true crates/ores-stack-cli/src/ppr_middleware_wrapper.rs
 
       - name: Verify formatting drift confinement
         shell: bash
