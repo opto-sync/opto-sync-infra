@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ORES_STACK_SHA: fc20733144b323ef362dcfb7d852fae7b90cfa53
+  ORES_STACK_SHA: fa2fb436304122257498da20c371942f87b79964
 
 jobs:
   rust-1-88-exact-head:
