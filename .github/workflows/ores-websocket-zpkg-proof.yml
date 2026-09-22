@@ -13,7 +13,7 @@ permissions:
 env:
   SOURCE_REPO: ORESoftware/ores-websocket
   SOURCE_BRANCH: fix/zpkg-universal-language-20260922
-  SOURCE_SHA: '6d36f70197c0b047c8d7b12d5ad44e861716a8b7'
+  SOURCE_SHA: '9c0391cf4e62921d557aec86eecedbdbd54ce8dd'
   CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
 
 jobs:
@@ -46,6 +46,7 @@ jobs:
           test "$(git ls-remote "https://github.com/${SOURCE_REPO}.git" "refs/heads/${SOURCE_BRANCH}" | cut -f1)" = "$SOURCE_SHA"
           grep -Fx 'language = "universal"' source/.zpkg.toml
           ! grep -Fx 'language = "multi"' source/.zpkg.toml
+          ! grep -q '^\[targets\.' source/.zpkg.toml
 
       - name: Install Rust 1.88 and Node 22.9.0
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
