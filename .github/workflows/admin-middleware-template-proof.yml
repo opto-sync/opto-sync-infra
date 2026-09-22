@@ -20,11 +20,11 @@ jobs:
         include:
           - repo: ORESoftware/admin-api-server-template.rs
             branch: feat/portable-edge-middleware-hook-20260922
-            source_sha: 66bff1ebf8b331430ebe81b86d7559b37140d799
+            source_sha: 764fd3428bcbd5617f3448858539a4c841f6a989
             materialize_zed: 'false'
           - repo: ORESoftware/admin-web-server-template.rs
             branch: feat/middleware-authored-wrapper-20260922
-            source_sha: ea866411f8d0dc9bec747bc5cc63a44bb37686ef
+            source_sha: 60cb04c0aa4fc98699a5dc1305a4b2c246615898
             materialize_zed: 'true'
     env:
       CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
@@ -73,8 +73,13 @@ jobs:
         if: ${{ matrix.materialize_zed == 'true' }}
         shell: bash
         working-directory: source
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+          ZED_PKG_GITHUB_TOKEN: ${{ secrets.ORE_SOURCE_PAT }}
+          GH_TOKEN: ${{ secrets.ORE_SOURCE_PAT }}
         run: |
           set -euo pipefail
+          test -n "$ORE_SOURCE_PAT"
           cargo install --git https://github.com/zed-pkg/zed-cli \
             --rev 344d432a6f94d4b1cfa02228ec36623c7484177a --locked zed-cli
           zed install --allow-build --install-mode copy
@@ -119,6 +124,8 @@ jobs:
         shell: bash
         env:
           FINAL_SHA: ${{ steps.push.outputs.final_sha }}
+          ZED_PKG_GITHUB_TOKEN: ${{ secrets.ORE_SOURCE_PAT }}
+          GH_TOKEN: ${{ secrets.ORE_SOURCE_PAT }}
         run: |
           set -euo pipefail
           remote_sha="$(git ls-remote "https://github.com/${SOURCE_REPO}.git" "refs/heads/${SOURCE_BRANCH}" | cut -f1)"
