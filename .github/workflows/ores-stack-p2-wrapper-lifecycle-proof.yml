@@ -1,0 +1,221 @@
+name: ores-stack-p2-wrapper-lifecycle-proof
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ores-stack-p2-wrapper-lifecycle-proof.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+  SOURCE_REPO: ORESoftware/ores-stack
+  SOURCE_BRANCH: fix/ppr-lifecycle-wrapper-20260922
+  SOURCE_SHA: 142821fc5749a1645387055b3988ba9e739e0220
+  SOURCE_MAIN_SHA: 142821fc5749a1645387055b3988ba9e739e0220
+  MIDDLEWARE_SHA: 0c29bf0c038b3df8aaaa1a5d3a13bba66b6df52f
+  P2_PROTOCOL_SHA: 142821fc5749a1645387055b3988ba9e739e0220
+  TARGET_FILE: crates/ores-stack-cli/src/ppr_middleware_wrapper.rs
+
+jobs:
+  repair_and_certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Configure private source access
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+        run: |
+          set -euo pipefail
+          test -n "$ORE_SOURCE_PAT"
+          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+          git config --global user.name "ores-ci-proof"
+          git config --global user.email "ci@oresoftware.com"
+
+      - name: Install Rust 1.88
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.88.0 --profile minimal --no-self-update
+          rustup default 1.88.0
+          rustup component add rustfmt clippy
+          rustc --version
+          cargo --version
+
+      - name: Fetch exact source branch and main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote "https://github.com/${SOURCE_REPO}.git" "refs/heads/${SOURCE_BRANCH}" | cut -f1)" = "$SOURCE_SHA"
+          test "$(git ls-remote "https://github.com/${SOURCE_REPO}.git" refs/heads/main | cut -f1)" = "$SOURCE_MAIN_SHA"
+          git init source
+          git -C source remote add origin "https://github.com/${SOURCE_REPO}.git"
+          git -C source fetch --depth=1 origin "$SOURCE_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Apply deterministic lifecycle-wrapper repair
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("crates/ores-stack-cli/src/ppr_middleware_wrapper.rs")
+          s = p.read_text()
+          def once(old, new):
+              global s
+              count = s.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected one match, got {count}: {old!r}")
+              s = s.replace(old, new, 1)
+          once('const ORES_STACK_P2_PROTOCOL_REV: &str = "ebec1752123b77358342dfb3ca54c16986390501";',
+               'const ORES_STACK_P2_PROTOCOL_REV: &str = "142821fc5749a1645387055b3988ba9e739e0220";')
+          once('    LocalEdgeMinimalHost, MiddlewareCacheProvider, MiddlewareFetchProvider, MiddlewareFetchRequest,',
+               '    LocalEdgeMinimalLifecycleHost, MiddlewareCacheProvider, MiddlewareFetchProvider, MiddlewareFetchRequest,')
+          once('    TelemetrySink, edge_minimal_middleware_fn,',
+               '    TelemetrySink, edge_minimal_finalizer_fn, edge_minimal_middleware_fn,')
+          once('use ores_stack_p2_edge_minimal::run_stdio_once;',
+               'use ores_stack_p2_edge_minimal::run_stdio_lifecycle;')
+          once('    let middleware = edge_minimal_middleware_fn(app_middleware::middleware);',
+               '    let middleware = edge_minimal_middleware_fn(app_middleware::edge_minimal);')
+          once('    let host = LocalEdgeMinimalHost::from_middleware(middleware, deps);',
+               '    let finalizer = edge_minimal_finalizer_fn(app_middleware::p2_after);\n    let host = LocalEdgeMinimalLifecycleHost::with_finalizer(\n        Arc::new(middleware),\n        deps,\n        Arc::new(finalizer),\n    );')
+          once('    run_stdio_once(&host, stdin.lock(), stdout.lock())',
+               '    run_stdio_lifecycle(&host, stdin.lock(), stdout.lock())')
+          once('            "pub async fn middleware(args: ores_middleware::EdgeMinimalCallbackArgs) -> Result<ores_middleware::EdgeMinimalDecision, ores_middleware::IntegrationError> { Ok(ores_middleware::EdgeMinimalDecision::Continue(args.request)) }\\n",',
+               '            "pub async fn edge_minimal(args: ores_middleware::EdgeMinimalCallbackArgs) -> Result<ores_middleware::EdgeMinimalDecision, ores_middleware::IntegrationError> { Ok(ores_middleware::EdgeMinimalDecision::Continue(args.request)) }\\npub async fn p2_after(_args: ores_middleware::EdgeMinimalFinishArgs) -> Result<(), ores_middleware::IntegrationError> { Ok(()) }\\n",')
+          once('        assert!(source.contains("LocalEdgeMinimalHost"));',
+               '        assert!(source.contains("LocalEdgeMinimalLifecycleHost"));')
+          once('        assert!(source.contains("edge_minimal_middleware_fn(app_middleware::middleware)"));',
+               '        assert!(source.contains("edge_minimal_middleware_fn(app_middleware::edge_minimal)"));\n        assert!(source.contains("edge_minimal_finalizer_fn(app_middleware::p2_after)"));')
+          once('        assert!(source.contains("run_stdio_once"));',
+               '        assert!(source.contains("run_stdio_lifecycle"));')
+          p.write_text(s)
+          PY
+          rustfmt --edition 2024 "$TARGET_FILE"
+          test "$(git diff --name-only)" = "$TARGET_FILE"
+          git diff --check
+
+      - name: Compile and test repaired CLI slice
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          rustfmt --edition 2024 --check "$TARGET_FILE"
+          cargo check --locked -p ores-stack-cli --all-targets
+          cargo test --locked -p ores-stack-cli ppr_middleware_wrapper -- --nocapture
+          cargo build --locked -p ores-stack-cli
+
+      - name: Require no Clippy diagnostics in repaired source
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          set +e
+          cargo clippy --locked -p ores-stack-cli --all-targets --message-format=json -- -D warnings > clippy.json
+          clippy_rc=$?
+          set -e
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          target = "crates/ores-stack-cli/src/ppr_middleware_wrapper.rs"
+          bad = []
+          for line in Path("clippy.json").read_text().splitlines():
+              try:
+                  obj = json.loads(line)
+              except json.JSONDecodeError:
+                  continue
+              if obj.get("reason") != "compiler-message":
+                  continue
+              msg = obj.get("message", {})
+              if msg.get("level") not in {"warning", "error"}:
+                  continue
+              if any(span.get("is_primary") and span.get("file_name") == target for span in msg.get("spans", [])):
+                  bad.append(msg.get("rendered") or msg.get("message"))
+          if bad:
+              raise SystemExit("\n".join(str(x) for x in bad))
+          PY
+          if [ "$clippy_rc" -ne 0 ]; then
+            echo "full CLI Clippy has unrelated pre-existing diagnostics; repaired file has none" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          rm clippy.json
+          test "$(git diff --name-only)" = "$TARGET_FILE"
+
+      - name: Compile an actually generated lifecycle P2 wrapper
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          fixture="$(mktemp -d)"
+          mkdir -p "$fixture/src/middleware"
+          printf 'pub mod mw;\n' > "$fixture/src/middleware/mod.rs"
+          cat > "$fixture/src/middleware/mw.rs" <<'RS'
+          pub async fn edge_minimal(
+              args: ores_middleware::EdgeMinimalCallbackArgs,
+          ) -> Result<ores_middleware::EdgeMinimalDecision, ores_middleware::IntegrationError> {
+              Ok(ores_middleware::EdgeMinimalDecision::Continue(args.request))
+          }
+
+          pub async fn p2_after(
+              _args: ores_middleware::EdgeMinimalFinishArgs,
+          ) -> Result<(), ores_middleware::IntegrationError> {
+              Ok(())
+          }
+          RS
+          target/debug/ores-stack __ppr-generate-middleware-wrapper \
+            --root="$fixture" \
+            --ores-middleware-rev="$MIDDLEWARE_SHA"
+          manifest="$fixture/tmp/ores-stack-ppr-middleware/Cargo.toml"
+          generated="$fixture/tmp/ores-stack-ppr-middleware/main.rs"
+          grep -F "$MIDDLEWARE_SHA" "$manifest"
+          grep -F "$P2_PROTOCOL_SHA" "$manifest"
+          grep -F 'LocalEdgeMinimalLifecycleHost' "$generated"
+          grep -F 'edge_minimal_middleware_fn(app_middleware::edge_minimal)' "$generated"
+          grep -F 'edge_minimal_finalizer_fn(app_middleware::p2_after)' "$generated"
+          grep -F 'run_stdio_lifecycle' "$generated"
+          cargo check --manifest-path "$manifest"
+          rm -rf "$fixture"
+
+      - name: Commit and push certified one-file repair
+        id: push
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          test "$(git diff --name-only)" = "$TARGET_FILE"
+          test "$(git ls-remote "https://github.com/${SOURCE_REPO}.git" refs/heads/main | cut -f1)" = "$SOURCE_MAIN_SHA"
+          test "$(git ls-remote "https://github.com/${SOURCE_REPO}.git" "refs/heads/${SOURCE_BRANCH}" | cut -f1)" = "$SOURCE_SHA"
+          git add "$TARGET_FILE"
+          git commit -m "fix(ppr): generate lifecycle-aware edge-minimal wrapper"
+          final_sha="$(git rev-parse HEAD)"
+          git push origin "HEAD:refs/heads/${SOURCE_BRANCH}"
+          echo "final_sha=$final_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Re-fetch final exact head and repeat product evidence
+        shell: bash
+        env:
+          FINAL_SHA: ${{ steps.push.outputs.final_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote "https://github.com/${SOURCE_REPO}.git" "refs/heads/${SOURCE_BRANCH}" | cut -f1)" = "$FINAL_SHA"
+          test "$(git ls-remote "https://github.com/${SOURCE_REPO}.git" refs/heads/main | cut -f1)" = "$SOURCE_MAIN_SHA"
+          git init final
+          git -C final remote add origin "https://github.com/${SOURCE_REPO}.git"
+          git -C final fetch --depth=1 origin "$FINAL_SHA"
+          git -C final checkout --detach FETCH_HEAD
+          cd final
+          rustfmt --edition 2024 --check "$TARGET_FILE"
+          cargo check --locked -p ores-stack-cli --all-targets
+          cargo test --locked -p ores-stack-cli ppr_middleware_wrapper -- --nocapture
+          git diff --check
+          test -z "$(git status --porcelain)"
+          printf 'ores-stack lifecycle wrapper exact final head: %s\n' "$FINAL_SHA" >> "$GITHUB_STEP_SUMMARY"
