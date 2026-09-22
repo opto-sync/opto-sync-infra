@@ -45,7 +45,7 @@ jobs:
           git -C ores-stack checkout -b repair "$SOURCE_HEAD"
           test -z "$(git -C ores-stack status --short)"
 
-      - name: Rust 1.88 source and CLI certification
+      - name: Install Rust 1.88
         shell: bash
         working-directory: ores-stack
         run: |
@@ -54,19 +54,35 @@ jobs:
           rustup default 1.88.0
           rustup component add rustfmt clippy
 
+      - name: Rustfmt CLI wrapper sources
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
           rustfmt --edition 2024 crates/ores-stack-cli/src/entry.rs crates/ores-stack-cli/src/ppr_middleware_wrapper.rs
-          cargo check --locked -p ores-stack-cli --all-targets
-          cargo test --locked -p ores-stack-cli ppr_middleware_wrapper -- --nocapture
-          cargo clippy --locked -p ores-stack-cli --all-targets -- -D warnings
           git diff --check
-
           changed="$(git diff --name-only | sort)"
           expected=$'crates/ores-stack-cli/src/entry.rs\ncrates/ores-stack-cli/src/ppr_middleware_wrapper.rs'
           if [ -n "$changed" ]; then
             test "$changed" = "$expected"
           fi
 
-      - name: Generate and compile isolated wrapper fixture
+      - name: Check ores-stack CLI
+        shell: bash
+        working-directory: ores-stack
+        run: cargo check --locked -p ores-stack-cli --all-targets
+
+      - name: Test edge wrapper module
+        shell: bash
+        working-directory: ores-stack
+        run: cargo test --locked -p ores-stack-cli ppr_middleware_wrapper -- --nocapture
+
+      - name: Clippy ores-stack CLI
+        shell: bash
+        working-directory: ores-stack
+        run: cargo clippy --locked -p ores-stack-cli --all-targets -- -D warnings
+
+      - name: Generate isolated wrapper fixture
         shell: bash
         working-directory: ores-stack
         run: |
@@ -93,8 +109,28 @@ jobs:
           grep -Fq 'ores-stack-p2-edge-minimal' "$manifest"
           grep -Fq 'edge_minimal_middleware_fn(app_middleware::middleware)' "$main"
           grep -Fq 'run_stdio_once' "$main"
+          printf '%s\n' "$manifest" > "$RUNNER_TEMP/edge-wrapper-manifest"
+
+      - name: Compile generated isolated wrapper
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          manifest="$(cat "$RUNNER_TEMP/edge-wrapper-manifest")"
           cargo generate-lockfile --manifest-path "$manifest"
           cargo check --manifest-path "$manifest" --locked
+
+      - name: Guard confined source drift
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected=$'crates/ores-stack-cli/src/entry.rs\ncrates/ores-stack-cli/src/ppr_middleware_wrapper.rs'
+          if [ -n "$changed" ]; then
+            test "$changed" = "$expected"
+          fi
 
       - name: Guard and optionally fast-forward formatting repair
         shell: bash
@@ -102,7 +138,6 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git ls-remote origin "refs/heads/$SOURCE_BRANCH" | cut -f1)" = "$SOURCE_HEAD"
-          git diff --check
           git config user.name 'ORESoftware CI certification'
           git config user.email 'noreply@oresoftware.com'
           git add crates/ores-stack-cli/src/entry.rs crates/ores-stack-cli/src/ppr_middleware_wrapper.rs
