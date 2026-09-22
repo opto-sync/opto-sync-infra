@@ -21,11 +21,21 @@ jobs:
     env:
       EXPECTED_SHA: f20cfcd3afe571d67719e2a37ca02f0e1c44b8c3
     steps:
+      - name: Require scoped source PAT
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+        run: |
+          set -euo pipefail
+          test -n "$ORE_SOURCE_PAT"
+          echo "::add-mask::$ORE_SOURCE_PAT"
+
       - name: Checkout exact source head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: ORESoftware/k8s-libs-and-shared-defs
           ref: f20cfcd3afe571d67719e2a37ca02f0e1c44b8c3
+          token: ${{ secrets.ORE_SOURCE_PAT }}
           persist-credentials: false
           fetch-depth: 1
 
