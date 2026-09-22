@@ -1,0 +1,46 @@
+name: ores-clients-core external proof
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ores-clients-core.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact source head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ORESoftware/ores-clients-core
+          ref: e7782da7c95bbed822423c4a10a5c77b2ff322fa
+          path: source
+          token: ${{ secrets.ORE_SOURCE_PAT }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Workflow and composite-action boundary checks
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'runs-on: ubuntu-24.04' .github/workflows/ci.yml
+          grep -q 'timeout-minutes: 30' .github/workflows/ci.yml
+          grep -q 'ORES_CLIENTS_ACTION_REPO: ${{ inputs.repo }}' .github/actions/check/action.yml
+          grep -q -- '--repo "$ORES_CLIENTS_ACTION_REPO" validate' .github/actions/check/action.yml
+          grep -q 'args=(--repo "$ORES_CLIENTS_ACTION_REPO" check)' .github/actions/check/action.yml
+          ! grep -q -- '--repo "${{ inputs.repo }}"' .github/actions/check/action.yml
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          components: rustfmt,clippy
+      - name: Mirror source CI
+        working-directory: source
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo clippy --all-targets --all-features -- -D warnings
+          cargo test --all-targets --all-features
