@@ -1,0 +1,156 @@
+name: upstream-web-runtime-cert
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/upstream-web-runtime-cert.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+
+jobs:
+  ores_sw_source_closure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      SOURCE_REPO: 'ORESoftware/ores-sw.js'
+      SOURCE_BRANCH: 'fix/self-contained-rust-assets'
+      SOURCE_HEAD: '2c5ed00b1532c721f3a25b13b25e816867077c56'
+    steps:
+      - name: Configure private source access
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: '${{ secrets.ORE_SOURCE_PAT }}'
+        run: |
+          set -euo pipefail
+          test -n "$ORE_SOURCE_PAT"
+          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+      - name: Fetch exact ores-sw PR head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init source
+          git -C source remote add origin "https://github.com/${SOURCE_REPO}.git"
+          git -C source fetch --depth=1 origin "$SOURCE_BRANCH"
+          test "$(git -C source rev-parse FETCH_HEAD)" = "$SOURCE_HEAD"
+          git -C source checkout -b certified "$SOURCE_HEAD"
+      - name: Install exact Node 22.9
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSLO https://nodejs.org/dist/v22.9.0/node-v22.9.0-linux-x64.tar.xz
+          curl -fsSLO https://nodejs.org/dist/v22.9.0/SHASUMS256.txt
+          grep ' node-v22.9.0-linux-x64.tar.xz$' SHASUMS256.txt | sha256sum -c -
+          tar -xJf node-v22.9.0-linux-x64.tar.xz
+          echo "$PWD/node-v22.9.0-linux-x64/bin" >> "$GITHUB_PATH"
+      - name: Verify generated browser source closure
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          node --version
+          npm --version
+          npm install --ignore-scripts
+          npm run rust-source:check
+          npm run typecheck
+          npm test
+          npm run consumers:check
+          npm run build
+          git diff --exit-code -- dist/client.js dist/service-worker.js dist/sync.shared-worker.js dist/validation.shared-worker.js dist/compute.shared-worker.js dist/jobs.shared-worker.js
+      - name: Verify Rust consumers without Node build state
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          rm -rf node_modules .tmp artifacts dist/types dist/wasm
+          test -f dist/client.js
+          test -f dist/service-worker.js
+          test -f dist/sync.shared-worker.js
+          test -f dist/validation.shared-worker.js
+          test -f dist/compute.shared-worker.js
+          test -f dist/jobs.shared-worker.js
+          rustup toolchain install 1.88.0 --profile minimal --no-self-update
+          rustup default 1.88.0
+          rustup component add rustfmt clippy
+          cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+          cargo test --manifest-path rust/Cargo.toml --all-targets
+          cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
+          cargo fmt --manifest-path rust-axum08/Cargo.toml --all -- --check
+          cargo test --manifest-path rust-axum08/Cargo.toml --all-targets
+          cargo clippy --manifest-path rust-axum08/Cargo.toml --all-targets -- -D warnings
+          git diff --check
+
+  ores_websocket_zpkg:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      SOURCE_REPO: 'ORESoftware/ores-websocket'
+      SOURCE_BRANCH: 'fix/zpkg-universal-language-20260922'
+      SOURCE_HEAD: '9c0391cf4e62921d557aec86eecedbdbd54ce8dd'
+      ZED_REPO: 'zed-pkg/zed-cli'
+      ZED_HEAD: '344d432a6f94d4b1cfa02228ec36623c7484177a'
+    steps:
+      - name: Configure private source access
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: '${{ secrets.ORE_SOURCE_PAT }}'
+        run: |
+          set -euo pipefail
+          test -n "$ORE_SOURCE_PAT"
+          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+      - name: Fetch exact ores-websocket PR head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init source
+          git -C source remote add origin "https://github.com/${SOURCE_REPO}.git"
+          git -C source fetch --depth=1 origin "$SOURCE_BRANCH"
+          test "$(git -C source rev-parse FETCH_HEAD)" = "$SOURCE_HEAD"
+          git -C source checkout -b certified "$SOURCE_HEAD"
+      - name: Build pinned Zed CLI
+        shell: bash
+        env:
+          GH_TOKEN: '${{ secrets.ORE_SOURCE_PAT }}'
+          ZED_PKG_GITHUB_TOKEN: '${{ secrets.ORE_SOURCE_PAT }}'
+        run: |
+          set -euo pipefail
+          git clone --no-checkout "https://github.com/${ZED_REPO}.git" zed-cli
+          git -C zed-cli fetch --depth=1 origin "$ZED_HEAD"
+          git -C zed-cli checkout --detach "$ZED_HEAD"
+          cargo build --manifest-path zed-cli/Cargo.toml --release
+          echo "$PWD/zed-cli/target/release" >> "$GITHUB_PATH"
+      - name: Validate and materialize universal package
+        shell: bash
+        working-directory: source
+        env:
+          GH_TOKEN: '${{ secrets.ORE_SOURCE_PAT }}'
+          ZED_PKG_GITHUB_TOKEN: '${{ secrets.ORE_SOURCE_PAT }}'
+        run: |
+          set -euo pipefail
+          zed validate
+          zed install --allow-build --install-mode copy
+          zed validate --require-lock
+      - name: Mirror source Rust and Node checks
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.88.0 --profile minimal --no-self-update
+          rustup default 1.88.0
+          rustup component add rustfmt clippy
+          cargo fmt --all -- --check
+          cargo test --all-targets
+          cargo clippy --all-targets -- -D warnings
+          curl -fsSLO https://nodejs.org/dist/v22.9.0/node-v22.9.0-linux-x64.tar.xz
+          curl -fsSLO https://nodejs.org/dist/v22.9.0/SHASUMS256.txt
+          grep ' node-v22.9.0-linux-x64.tar.xz$' SHASUMS256.txt | sha256sum -c -
+          tar -xJf node-v22.9.0-linux-x64.tar.xz
+          export PATH="$PWD/node-v22.9.0-linux-x64/bin:$PATH"
+          npm install --ignore-scripts
+          npm run check
+          git diff --check
