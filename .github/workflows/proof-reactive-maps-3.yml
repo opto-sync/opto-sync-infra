@@ -31,7 +31,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           git cat-file -e "$SOURCE_BASE^{commit}"
           git diff --check "$SOURCE_BASE" "$SOURCE_SHA"
-          test "$(git diff --name-only "$SOURCE_BASE" "$SOURCE_SHA" | sort)" = "$(printf '%s\n' src/typescript/package.json src/typescript/src/index.ts src/typescript/test/index.test.ts src/typescript/test/types.test.ts src/typescript/tsconfig.test.json | sort)"
+          test "$(git diff --name-only "$SOURCE_BASE" "$SOURCE_SHA" | sort)" = "$(printf '%s\n' src/typescript/package.json src/typescript/src/index.ts src/typescript/test/index.test.ts src/typescript/test/types.ts src/typescript/tsconfig.test.json | sort)"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
