@@ -1,0 +1,97 @@
+name: ores-stack-governance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ores-stack-governance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+  SOURCE_BRANCH: 'feat/cli-contract-governance-v1-20260922'
+  SOURCE_HEAD_SHA: 'a673b93cb728c5d9c23d9ea59c0baffc9705f36e'
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Configure private source access
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+        run: |
+          set -euo pipefail
+          test -n "$ORE_SOURCE_PAT"
+          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+
+      - name: Fetch exact ores-stack source head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init ores-stack
+          git -C ores-stack remote add origin https://github.com/ORESoftware/ores-stack.git
+          git -C ores-stack fetch --depth=1 origin "$SOURCE_BRANCH"
+          git -C ores-stack checkout -B "$SOURCE_BRANCH" FETCH_HEAD
+          test "$(git -C ores-stack rev-parse HEAD)" = "$SOURCE_HEAD_SHA"
+          test "$(git -C ores-stack ls-remote origin "refs/heads/$SOURCE_BRANCH" | cut -f1)" = "$SOURCE_HEAD_SHA"
+
+      - name: Install Rust 1.88
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.88.0 --profile minimal --no-self-update
+          rustup default 1.88.0
+          rustup component add rustfmt clippy
+          rustc --version
+          cargo --version
+
+      - name: Rust formatting and locked compile
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          bash scripts/bootstrap-cargo-lock.sh ensure
+          cargo fmt --all -- --check
+          cargo check --locked -p ores-stack-cli --all-targets
+
+      - name: Focused governance and scaffold tests
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          cargo test --locked -p ores-stack-cli contract_cli
+          cargo test --locked -p ores-stack-cli scaffold_cli
+          bash scripts/check-cli-standardization.sh
+          git diff --check
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
+      - name: Governance TypeSpec / JSON Schema parity
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          npm install
+          mkdir -p .ores-stack
+          npm run check:governance
+
+      - name: Exact-head and cleanliness guard
+        shell: bash
+        working-directory: ores-stack
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_HEAD_SHA"
+          test "$(git ls-remote origin "refs/heads/$SOURCE_BRANCH" | cut -f1)" = "$SOURCE_HEAD_SHA"
+          git diff --check
+          test -z "$(git status --porcelain --untracked-files=no)"
