@@ -1,0 +1,130 @@
+name: ores-stack-278-279-exact-head
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ores-stack-278-279-exact-head.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+  ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+
+jobs:
+  prove-279:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      SOURCE_BRANCH: 'feat/stack-dev-build-deploy-ppr-20260923'
+      SOURCE_SHA: 'eed5dfdcdfcd8ba07f09fc1276d226008896dcc7'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Configure private source access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ORE_SOURCE_PAT"
+          echo "::add-mask::$ORE_SOURCE_PAT"
+          git config --global credential.helper '!f() { if [ "$1" = get ]; then echo username=x-access-token; echo "password=$ORE_SOURCE_PAT"; fi; }; f'
+      - name: Fetch exact ores-stack #279 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init ores-stack-279
+          git -C ores-stack-279 remote add origin https://github.com/ORESoftware/ores-stack.git
+          git -C ores-stack-279 fetch --depth=1 origin "$SOURCE_BRANCH"
+          git -C ores-stack-279 checkout --detach FETCH_HEAD
+          test "$(git -C ores-stack-279 rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Install Rust 1.88
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.88.0 --profile minimal --no-self-update
+          rustup default 1.88.0
+          rustup component add rustfmt clippy
+      - name: Prove #279 workspace
+        shell: bash
+        working-directory: ores-stack-279
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo check --workspace --all-targets --locked
+          cargo test --workspace --locked
+          cargo clippy -p ores-stack-cli --all-targets --locked -- -D warnings
+          git diff --check
+      - name: Prove #279 standalone lambda runtime
+        shell: bash
+        working-directory: ores-stack-279
+        run: |
+          set -euo pipefail
+          cargo fmt --manifest-path crates/ores-lambda-runtime/Cargo.toml -- --check
+          cargo check --manifest-path crates/ores-lambda-runtime/Cargo.toml --all-features
+          cargo test --manifest-path crates/ores-lambda-runtime/Cargo.toml --all-features
+      - name: Final #279 immutable source guard
+        shell: bash
+        working-directory: ores-stack-279
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(git ls-remote origin "refs/heads/$SOURCE_BRANCH" | cut -f1)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo ORES_STACK_279_EXACT_HEAD_PASS
+
+  prove-278:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      SOURCE_BRANCH: 'feat/cli-contract-governance-v1-20260922'
+      SOURCE_SHA: 'a673b93cb728c5d9c23d9ea59c0baffc9705f36e'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Configure private source access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ORE_SOURCE_PAT"
+          echo "::add-mask::$ORE_SOURCE_PAT"
+          git config --global credential.helper '!f() { if [ "$1" = get ]; then echo username=x-access-token; echo "password=$ORE_SOURCE_PAT"; fi; }; f'
+      - name: Fetch exact ores-stack #278 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init ores-stack-278
+          git -C ores-stack-278 remote add origin https://github.com/ORESoftware/ores-stack.git
+          git -C ores-stack-278 fetch --depth=1 origin "$SOURCE_BRANCH"
+          git -C ores-stack-278 checkout --detach FETCH_HEAD
+          test "$(git -C ores-stack-278 rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Install Rust 1.88
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.88.0 --profile minimal --no-self-update
+          rustup default 1.88.0
+          rustup component add rustfmt clippy
+      - name: Prove #278 Rust governance surface
+        shell: bash
+        working-directory: ores-stack-278
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo check -p ores-stack-cli --all-targets --locked
+          cargo test -p ores-stack-cli --locked
+          cargo clippy -p ores-stack-cli --all-targets --locked -- -D warnings
+          git diff --check
+      - name: Prove #278 TypeSpec/JSON Schema parity
+        shell: bash
+        working-directory: ores-stack-278
+        run: |
+          set -euo pipefail
+          node --version
+          npm --version
+          npm install --no-audit --no-fund --ignore-scripts
+          npm run check:contracts
