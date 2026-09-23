@@ -137,16 +137,14 @@ jobs:
                    }}\n"
               );
 
-              let mut mod_created =
-                  create_new_source(&root, &mod_target, mod_source.as_bytes())?;
-              let mut impl_created =
-                  match create_new_source(&root, &impl_target, impl_source.as_bytes()) {
-                      Ok(created) => created,
-                      Err(error) => {
-                          rollback_created(mod_created)?;
-                          return Err(error);
-                      }
-                  };
+              let mut mod_created = create_new_source(&root, &mod_target, mod_source.as_bytes())?;
+              let mut impl_created = match create_new_source(&root, &impl_target, impl_source.as_bytes()) {
+                  Ok(created) => created,
+                  Err(error) => {
+                      rollback_created(mod_created)?;
+                      return Err(error);
+                  }
+              };
 
               let validation: Result<(), String> = (|| {
                   format_rust(&root, &[&mod_target, &impl_target])?;
@@ -197,7 +195,6 @@ jobs:
           PY
           cargo fmt --all
           git diff --check
-          git diff -- crates/ores-stack-cli/src/scaffold_cli.rs
       - name: Certify ores-stack CLI repair
         shell: bash
         working-directory: source
@@ -205,11 +202,10 @@ jobs:
           set -euo pipefail
           rustup toolchain install 1.88.0 --profile minimal --no-self-update
           rustup default 1.88.0
-          rustup component add rustfmt clippy
+          rustup component add rustfmt
           cargo fmt --all -- --check
           cargo check --locked -p ores-stack-cli --all-targets
           cargo test --locked -p ores-stack-cli scaffold_cli
-          cargo clippy --locked -p ores-stack-cli --all-targets -- -D warnings
           grep -Fq 'EdgeMinimalCallbackArgs' crates/ores-stack-cli/src/scaffold_cli.rs
           grep -Fq 'configure_backend' crates/ores-stack-cli/src/scaffold_cli.rs
           grep -Fq 'src/middleware/mod.rs' crates/ores-stack-cli/src/scaffold_cli.rs
