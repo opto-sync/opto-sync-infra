@@ -70,6 +70,9 @@ jobs:
       - name: Materialize pinned Zed dependencies
         working-directory: subject
         shell: bash
+        env:
+          ZED_PKG_GITHUB_TOKEN: ${{ secrets.ORE_SOURCE_PAT }}
+          GITHUB_TOKEN: ${{ secrets.ORE_SOURCE_PAT }}
         run: |
           set -Eeuo pipefail
           cargo install --git https://github.com/zed-pkg/zed-cli --rev 344d432a6f94d4b1cfa02228ec36623c7484177a --locked zed-cli
