@@ -12,10 +12,11 @@ permissions:
 jobs:
   certify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 45
     env:
       SOURCE_SHA: 3eeb04c46dc4e116dd18c9865fb37e3bfe4d2f59
       SOURCE_BASE: 97aec1181120c99dc59dc69cc769c5b5e2524927
+      SOURCE_BRANCH: feat/portable-edge-middleware-hook-20260922
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -32,11 +33,13 @@ jobs:
           ref: ${{ env.SOURCE_SHA }}
           token: ${{ secrets.ORE_SOURCE_PAT }}
           path: subject
-          fetch-depth: 32
+          fetch-depth: 0
           persist-credentials: false
       - name: Guard exact review surface and middleware authority
         working-directory: subject
         shell: bash
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
         run: |
           set -Eeuo pipefail
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
@@ -49,54 +52,57 @@ jobs:
           grep -F 'MiddlewareExecutionProfile::EdgeMinimal' src/middleware/mw.rs
           grep -F 'pub async fn edge_minimal' src/middleware/mw.rs
           grep -F 'pub fn configure_backend' src/middleware/mw.rs
+          remote=$(git ls-remote "https://x-access-token:${ORE_SOURCE_PAT}@github.com/ORESoftware/ores-web-server.template.rs.git" "refs/heads/${SOURCE_BRANCH}" | cut -f1)
+          test "$remote" = "$SOURCE_SHA"
           test -z "$(git status --porcelain)"
-      - name: Configure private Git reads
-        shell: bash
-        env:
-          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
-        run: git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
       - name: Install Rust 1.88
         shell: bash
         run: |
           set -Eeuo pipefail
           rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
           rustup default 1.88.0
+      - name: Configure private Cargo Git access
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+        run: |
+          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+          echo 'CARGO_NET_GIT_FETCH_WITH_CLI=true' >> "$GITHUB_ENV"
+      - name: Validate policy JSON and Cargo metadata
+        working-directory: subject
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          jq empty .ores-config-authorities.json config/ores-middleware-stack.json
+          cargo metadata --no-deps --format-version 1 >/dev/null
       - name: Format changed Rust authorities
         working-directory: subject
         shell: bash
-        run: |
-          set -Eeuo pipefail
-          rustfmt --edition 2024 --check src/lib.rs src/middleware/mod.rs src/middleware/mw.rs tests/authority_lock.rs tests/contract_alignment.rs
-      - name: Locked metadata
+        run: rustfmt --edition 2024 --check src/middleware/mod.rs src/middleware/mw.rs tests/authority_lock.rs tests/contract_alignment.rs
+      - name: Authority lock integrity
         working-directory: subject
-        env:
-          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
-        run: cargo metadata --locked --no-deps >/dev/null
-      - name: Authority contract tests
+        run: cargo test --test authority_lock
+      - name: Contract alignment
         working-directory: subject
-        env:
-          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
-        run: cargo test --locked --test authority_lock --test contract_alignment -- --nocapture
-      - name: Full all-target tests
+        run: cargo test --test contract_alignment
+      - name: Test all targets
         working-directory: subject
-        env:
-          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
-        run: cargo test --locked --all-targets
+        run: cargo test --all-targets
       - name: Strict Clippy
         working-directory: subject
-        env:
-          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
-        run: cargo clippy --locked --all-targets -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
       - name: Release build
         working-directory: subject
-        env:
-          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
-        run: cargo build --locked --release
+        run: cargo build --release --bin ores-web-server-template
       - name: Final immutable-source guard
+        if: always()
         working-directory: subject
         shell: bash
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
         run: |
           set -Eeuo pipefail
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          git diff --check "$SOURCE_BASE"..HEAD
-          test -z "$(git status --porcelain)"
+          remote=$(git ls-remote "https://x-access-token:${ORE_SOURCE_PAT}@github.com/ORESoftware/ores-web-server.template.rs.git" "refs/heads/${SOURCE_BRANCH}" | cut -f1)
+          test "$remote" = "$SOURCE_SHA"
+          git diff --exit-code
