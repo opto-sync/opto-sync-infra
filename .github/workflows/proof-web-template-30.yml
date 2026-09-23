@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
-      SOURCE_SHA: 3eeb04c46dc4e116dd18c9865fb37e3bfe4d2f59
+      SOURCE_SHA: 653ad80add67fdaf91f9dd0b8c52e4db3d38f160
       SOURCE_BASE: 97aec1181120c99dc59dc69cc769c5b5e2524927
       SOURCE_BRANCH: feat/portable-edge-middleware-hook-20260922
     steps:
