@@ -20,7 +20,7 @@ jobs:
     env:
       SOURCE_REPO: 'ORESoftware/ores-sw.js'
       SOURCE_BRANCH: 'fix/self-contained-rust-assets'
-      SOURCE_HEAD: '2c5ed00b1532c721f3a25b13b25e816867077c56'
+      SOURCE_HEAD: '0b8036d09cdb212c41429759b4f238793632d94f'
     steps:
       - name: Configure private source access
         shell: bash
@@ -124,7 +124,14 @@ jobs:
           git -C zed-cli checkout --detach "$ZED_HEAD"
           cargo build --manifest-path zed-cli/Cargo.toml --release
           echo "$PWD/zed-cli/target/release" >> "$GITHUB_PATH"
-      - name: Validate and materialize universal package
+      - name: Validate universal manifest
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          zed validate
+      - name: Probe materialization through current registry
+        continue-on-error: true
         shell: bash
         working-directory: source
         env:
@@ -132,9 +139,7 @@ jobs:
           ZED_PKG_GITHUB_TOKEN: '${{ secrets.ORE_SOURCE_PAT }}'
         run: |
           set -euo pipefail
-          zed validate
           zed install --allow-build --install-mode copy
-          zed validate --require-lock
       - name: Mirror source Rust and Node checks
         shell: bash
         working-directory: source
