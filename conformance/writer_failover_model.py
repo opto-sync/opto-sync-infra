@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from collections import deque
 
 NONE = -1
+MAX_EPOCH = 3
+MAX_CHECKPOINT = 2
 
 @dataclass(frozen=True)
 class State:
@@ -21,11 +23,12 @@ def healthy(s: State, region: int) -> bool:
 def next_states(s: State):
     out = []
     if s.writer == NONE:
-        for r in (0, 1):
-            if healthy(s, r):
-                out.append(State(r, s.healthy0, s.healthy1, s.durable_checkpoint, s.durable_checkpoint, s.epoch + 1))
+        if s.epoch < MAX_EPOCH:
+            for r in (0, 1):
+                if healthy(s, r):
+                    out.append(State(r, s.healthy0, s.healthy1, s.durable_checkpoint, s.durable_checkpoint, s.epoch + 1))
     else:
-        if s.active_checkpoint < 2:
+        if s.active_checkpoint < MAX_CHECKPOINT:
             out.append(State(s.writer, s.healthy0, s.healthy1, s.durable_checkpoint, s.active_checkpoint + 1, s.epoch))
         if s.durable_checkpoint < s.active_checkpoint:
             out.append(State(s.writer, s.healthy0, s.healthy1, s.active_checkpoint, s.active_checkpoint, s.epoch))
@@ -42,7 +45,8 @@ def next_states(s: State):
 
 
 def check(a: State, b: State | None = None):
-    assert a.durable_checkpoint <= a.active_checkpoint, "active checkpoint fell behind durable state"
+    assert 0 <= a.epoch <= MAX_EPOCH
+    assert a.durable_checkpoint <= a.active_checkpoint <= MAX_CHECKPOINT
     if a.writer == NONE:
         assert a.active_checkpoint == a.durable_checkpoint, "writerless state retained unpersisted progress"
     else:
@@ -64,6 +68,7 @@ def main():
             if n not in seen:
                 seen.add(n); q.append(n)
     assert any(s.epoch >= 2 for s in seen), "failover path was not explored"
+    assert max(s.epoch for s in seen) == MAX_EPOCH, "configured epoch horizon was not explored"
     print(f"writer failover model: {len(seen)} states, {edges} transitions")
 
 if __name__ == "__main__":
