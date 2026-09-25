@@ -1,0 +1,7 @@
+{
+  "schema": "opto-sync.infrastructure-conformance.v1",
+  "repository": "opto-sync/opto-sync-infra",
+  "existing_gates": ["oci-toolkit", "shared-auth-topology", "terraform-layout-contract"],
+  "runtime_failover_model_linked_to_implementation": false,
+  "future_runtime_claims": ["single-writer-fencing", "writer-epoch-monotonicity", "durable-checkpoint-monotonicity", "checkpoint-based-recovery"]
+}

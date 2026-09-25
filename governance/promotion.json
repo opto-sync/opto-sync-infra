@@ -1,0 +1,11 @@
+{
+  "schema": "opto-sync.infrastructure-promotion.v1",
+  "exact_head_required": true,
+  "stepful_execution_required": true,
+  "review_required": true,
+  "runtime_claim_requires_exact_artifact_test": true,
+  "runtime_claim_requires_implementation_link": true,
+  "wire_contract_authority": "opto-sync/opto-sync-interfaces",
+  "cluster_authority": "ORESoftware/k8s-cluster",
+  "disallowed_green_evidence": ["queued", "skipped", "zero-step", "stale-head", "billing-blocked", "admission-blocked", "missing-run", "historical-only"]
+}
