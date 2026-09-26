@@ -1,0 +1,54 @@
+name: Formal bounded sync invariants
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bounded-sync-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Exhaustively check bounded sync state space
+        shell: bash
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          const actions = ['local_write', 'remote_write', 'apply_local', 'apply_remote', 'stale_apply'];
+          const initial = { local: 0, remote: 0, applied: 0 };
+          const step = (s, action) => {
+            switch (action) {
+              case 'local_write': return { ...s, local: s.local + 1 };
+              case 'remote_write': return { ...s, remote: s.remote + 1 };
+              case 'apply_local': return { ...s, applied: Math.max(s.applied, s.local) };
+              case 'apply_remote': return { ...s, applied: Math.max(s.applied, s.remote) };
+              case 'stale_apply': return s;
+              default: throw new Error(`unknown action ${action}`);
+            }
+          };
+          const key = (s) => JSON.stringify(s);
+          let frontier = [initial];
+          const seen = new Set([key(initial)]);
+          for (let depth = 0; depth < 8; depth += 1) {
+            const next = [];
+            for (const state of frontier) {
+              assert.ok(state.applied <= Math.max(state.local, state.remote), 'applied revision must have been observed');
+              for (const action of actions) {
+                const after = step(state, action);
+                assert.ok(after.local >= state.local && after.remote >= state.remote, 'source revisions never regress');
+                assert.ok(after.applied >= state.applied, 'applied high-watermark never regresses');
+                assert.ok(after.applied <= Math.max(after.local, after.remote), 'application cannot invent a revision');
+                if (action === 'stale_apply') assert.deepEqual(after, state, 'stale apply is a no-op');
+                const k = key(after);
+                if (!seen.has(k)) { seen.add(k); next.push(after); }
+              }
+            }
+            frontier = next;
+          }
+          console.log(`formal sync model OK: ${seen.size} reachable states checked`);
+          NODE
