@@ -1,0 +1,64 @@
+name: web-surface-routing-cert
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/web-surface-routing-cert.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+
+jobs:
+  ores_stack_web_surfaces:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      SOURCE_REPO: 'ORESoftware/ores-stack'
+      SOURCE_BRANCH: 'harden/web-surface-routing-20260922-v2'
+      SOURCE_HEAD: '07dc29b595302e668f30a9a077c6b75049cdc415'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with: { persist-credentials: false }
+      - name: Configure private source access
+        shell: bash
+        env: { ORE_SOURCE_PAT: '${{ secrets.ORE_SOURCE_PAT }}' }
+        run: |
+          set -euo pipefail
+          test -n "$ORE_SOURCE_PAT"
+          git config --global url."https://x-access-token:${ORE_SOURCE_PAT}@github.com/".insteadOf "https://github.com/"
+      - name: Fetch exact ores-stack PR head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init source
+          git -C source remote add origin "https://github.com/${SOURCE_REPO}.git"
+          git -C source fetch --depth=1 origin "$SOURCE_BRANCH"
+          test "$(git -C source rev-parse FETCH_HEAD)" = "$SOURCE_HEAD"
+          git -C source checkout -b certified "$SOURCE_HEAD"
+      - name: Certify disjoint web surfaces on Rust 1.88
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.88.0 --profile minimal --no-self-update
+          rustup default 1.88.0
+          rustup component add rustfmt clippy
+          rustfmt --edition 2024 --check \
+            crates/ores-stack-core/src/lib.rs \
+            crates/ores-stack-core/src/web_execution_routing.rs \
+            crates/ores-stack-core/src/web_special_manifest.rs \
+            crates/ores-stack-core/src/web_surface_routing.rs \
+            crates/ores-stack-core/tests/web_execution_routing.rs \
+            crates/ores-stack-core/tests/web_surface_routing.rs
+          cargo check --locked -p ores-stack-core --all-targets
+          cargo clippy --locked -p ores-stack-core --all-targets -- -D warnings
+          cargo test --locked -p ores-stack-core --test web_surface_routing
+          cargo test --locked -p ores-stack-core --test web_execution_routing
+          cargo test --locked -p ores-stack-core web_special_manifest
+          git diff --check
+          test -z "$(git status --porcelain)"
