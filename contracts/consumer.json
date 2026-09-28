@@ -1,0 +1,8 @@
+{
+  "schema": "opto-sync.infra-contract-consumer.v1",
+  "repository": "opto-sync/opto-sync-infra",
+  "wire_contract_authority": "opto-sync/opto-sync-interfaces",
+  "cluster_authority": "ORESoftware/k8s-cluster",
+  "generated_manifests_are_authority": false,
+  "application_schema_startup_mutation_allowed": false
+}
