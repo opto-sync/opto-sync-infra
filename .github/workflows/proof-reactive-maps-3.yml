@@ -1,0 +1,92 @@
+name: proof ores-reactive-maps #3 exact head
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/proof-reactive-maps-3.yml
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_SHA: 4cc5e4c2c8edda6ef2173be7f2929ed23d3308f4
+  SOURCE_BASE: 4ecb8aeb020b10ddd49c76e5085cd537c8fa756b
+
+jobs:
+  typescript:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: ORESoftware/ores-reactive-maps
+          ref: ${{ env.SOURCE_SHA }}
+          token: ${{ secrets.ORE_SOURCE_PAT }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Guard exact source and diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git cat-file -e "$SOURCE_BASE^{commit}"
+          git diff --check "$SOURCE_BASE" "$SOURCE_SHA"
+          test "$(git diff --name-only "$SOURCE_BASE" "$SOURCE_SHA" | sort)" = "$(printf '%s\n' src/typescript/package.json src/typescript/src/index.ts src/typescript/test/index.test.ts src/typescript/test/types.ts src/typescript/tsconfig.test.json | sort)"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - working-directory: src/typescript
+        run: npm install --ignore-scripts
+      - working-directory: src/typescript
+        run: npm test
+      - working-directory: src/typescript
+        run: npm run build
+
+  go:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: ORESoftware/ores-reactive-maps
+          ref: ${{ env.SOURCE_SHA }}
+          token: ${{ secrets.ORE_SOURCE_PAT }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: src/go/go.mod
+      - working-directory: src/go
+        run: go test -race ./...
+
+  rust:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: ORESoftware/ores-reactive-maps
+          ref: ${{ env.SOURCE_SHA }}
+          token: ${{ secrets.ORE_SOURCE_PAT }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - uses: dtolnay/rust-toolchain@stable
+      - working-directory: src/rust
+        run: cargo test --all-targets
+
+  gleam:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: ORESoftware/ores-reactive-maps
+          ref: ${{ env.SOURCE_SHA }}
+          token: ${{ secrets.ORE_SOURCE_PAT }}
+          persist-credentials: false
+      - run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27.3'
+          gleam-version: '1.15.4'
+          rebar3-version: '3'
+      - working-directory: src/gleam
+        run: gleam test
