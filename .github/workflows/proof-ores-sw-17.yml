@@ -1,0 +1,124 @@
+name: proof ores-sw 17 source closure
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/proof-ores-sw-17.yml
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_REPO: ORESoftware/ores-sw.js
+  SOURCE_BRANCH: fix/self-contained-rust-assets
+  SOURCE_SHA: 0b8036d09cdb212c41429759b4f238793632d94f
+  SOURCE_BASE: af40988742570008d3b7cc573b673fca97b28112
+
+jobs:
+  repair-and-certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Require scoped source credential
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+        run: test -n "$ORE_SOURCE_PAT"
+
+      - name: Checkout exact source head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: ORESoftware/ores-sw.js
+          ref: ${{ env.SOURCE_BRANCH }}
+          token: ${{ secrets.ORE_SOURCE_PAT }}
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Guard exact source and expected closure files
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git cat-file -e "$SOURCE_BASE^{commit}"
+          git diff --check "$SOURCE_BASE" "$SOURCE_SHA"
+          for f in \
+            dist/service-worker.js \
+            dist/client.js \
+            dist/sync.shared-worker.js \
+            dist/validation.shared-worker.js \
+            dist/compute.shared-worker.js \
+            dist/jobs.shared-worker.js; do
+            test -s "$f"
+          done
+          remote_branch=$(git ls-remote "https://x-access-token:${ORE_SOURCE_PAT}@github.com/${SOURCE_REPO}.git" "refs/heads/${SOURCE_BRANCH}" | cut -f1)
+          test "$remote_branch" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Install Node.js 22.9
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.9.0'
+
+      - name: Install Rust 1.88
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
+          rustup default 1.88.0
+
+      - name: Apply source-local Rust 1.88 formatting repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --manifest-path rust/Cargo.toml
+          changed="$(git diff --name-only | sort)"
+          test "$changed" = "rust/src/lib.rs"
+          git diff --check
+          cargo fmt --manifest-path rust/Cargo.toml -- --check
+          cargo fmt --manifest-path rust/axum08/Cargo.toml -- --check
+
+      - name: Regenerate and verify committed browser bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --ignore-scripts --no-audit --no-fund
+          npm run build
+          status="$(git status --porcelain=v1 -- \
+            dist/service-worker.js \
+            dist/client.js \
+            dist/sync.shared-worker.js \
+            dist/validation.shared-worker.js \
+            dist/compute.shared-worker.js \
+            dist/jobs.shared-worker.js)"
+          test -z "$status"
+          npm run rust-source:check
+          test "$(git diff --name-only | sort)" = "rust/src/lib.rs"
+
+      - name: Prove Rust source closure without Node build state
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf node_modules .tmp artifacts
+          cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --manifest-path rust/axum08/Cargo.toml --all-targets -- -D warnings
+          cargo test --manifest-path rust/Cargo.toml --all-targets
+          cargo test --manifest-path rust/axum08/Cargo.toml --all-targets
+          test "$(git diff --name-only | sort)" = "rust/src/lib.rs"
+
+      - name: Commit certified formatting repair to source branch
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+        run: |
+          set -euo pipefail
+          git config user.name 'ORESoftware automation'
+          git config user.email 'noreply@oresoftware.com'
+          git add rust/src/lib.rs
+          git commit -m 'style(rust): apply Rust 1.88 formatting'
+          new_sha=$(git rev-parse HEAD)
+          git push origin "HEAD:${SOURCE_BRANCH}"
+          remote_branch=$(git ls-remote "https://x-access-token:${ORE_SOURCE_PAT}@github.com/${SOURCE_REPO}.git" "refs/heads/${SOURCE_BRANCH}" | cut -f1)
+          test "$remote_branch" = "$new_sha"
+          echo "certified_source_sha=$new_sha" >> "$GITHUB_STEP_SUMMARY"
