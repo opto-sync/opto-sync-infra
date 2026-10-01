@@ -1,0 +1,77 @@
+name: prepare worker #74 rustfmt patch
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/prepare-worker-74-rustfmt.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      K8S_PROVENANCE_COMMIT: 5cfac43c6900898f36f588d044ca34083da1c726
+      LIBS_PROVENANCE_COMMIT: 84d565eeb7e1e78ce0851a2e3c95966e5cc12e36
+      WORKER_SHA: b75aed10acad716993845d328f5166abcd525f01
+      WORKER_PATH: workspace/remote/deployments/build-server-rs
+    steps:
+      - name: Require scoped source PAT
+        shell: bash
+        env:
+          ORE_SOURCE_PAT: ${{ secrets.ORE_SOURCE_PAT }}
+        run: |
+          set -euo pipefail
+          test -n "$ORE_SOURCE_PAT"
+          echo "::add-mask::$ORE_SOURCE_PAT"
+
+      - name: Recreate immutable k8s source workspace
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ORESoftware/k8s-cluster
+          ref: ${{ env.K8S_PROVENANCE_COMMIT }}
+          persist-credentials: false
+          path: workspace
+
+      - name: Materialize exact private libs gitlink
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ORESoftware/k8s-libs-and-shared-defs
+          ref: ${{ env.LIBS_PROVENANCE_COMMIT }}
+          token: ${{ secrets.ORE_SOURCE_PAT }}
+          persist-credentials: false
+          path: workspace/remote/libs
+
+      - name: Remove historical worker snapshot
+        shell: bash
+        run: rm -rf "$WORKER_PATH"
+
+      - name: Overlay exact production worker head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: gha-indie-worker/gha-indie-worker.rs
+          ref: ${{ env.WORKER_SHA }}
+          persist-credentials: false
+          path: ${{ env.WORKER_PATH }}
+
+      - name: Install Rust 1.90.0
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        with:
+          toolchain: 1.90.0
+          components: rustfmt
+
+      - name: Format only the production worker package
+        shell: bash
+        run: cargo fmt --manifest-path "$WORKER_PATH/Cargo.toml" --package dd-build-server
+
+      - name: Emit worker-only rustfmt patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '===WORKER_RUSTFMT_PATCH_BEGIN==='
+          git -C "$WORKER_PATH" diff --no-ext-diff -- src
+          echo '===WORKER_RUSTFMT_PATCH_END==='
